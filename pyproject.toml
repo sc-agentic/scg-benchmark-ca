@@ -1,0 +1,14 @@
+[project]
+name = "scg-benchmark"
+version = "0.1.0"
+description = "Benchmarking pipeline for SCG-based code comprehension vs baseline grep"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "claude-agent-sdk>=0.1.0",
+    "mcp>=1.1.0",
+    "python-dotenv>=1.0.0",
+    "pandas>=3.0.1",
+    "matplotlib>=3.10.8",
+    "seaborn>=0.13.2",
+]

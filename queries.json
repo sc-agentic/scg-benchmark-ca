@@ -1,0 +1,62 @@
+{
+  "projects": [
+    {
+      "name": "Glide",
+      "folder": "glide-5.0.5",
+      "description": "Glide is a fast and efficient image loading library for Android focused on smooth scrolling.",
+      "language": "Java",
+      "queries": [
+        {
+          "query_id": "Q1",
+          "category": "Project Structure",
+          "prompt_text": "What are the main packages (modules) in the Glide library, and what is each one responsible for?"
+        },
+        {
+          "query_id": "Q2",
+          "category": "Project Structure",
+          "prompt_text": "How is the `com.bumptech.glide.load.engine` package structured? What are the key classes and how do they relate to each other?"
+        },
+        {
+          "query_id": "Q4",
+          "category": "Critical Entities",
+          "prompt_text": "What is the role of the `Engine` class, and what are its direct dependencies?"
+        },
+        {
+          "query_id": "Q5",
+          "category": "Data Flow",
+          "prompt_text": "Trace the complete image loading pipeline: what happens from the moment `Glide.with(context).load(url).into(imageView)` is called until the image is displayed? Which classes and methods are involved?"
+        },
+        {
+          "query_id": "Q6",
+          "category": "Data Flow",
+          "prompt_text": "How does the `DecodeJob` interact with `DataFetcherGenerator` and `DecodePath`? Describe the data flow between these components."
+        },
+        {
+          "query_id": "Q8",
+          "category": "Inheritance",
+          "prompt_text": "What is the class hierarchy of `Target` in Glide? List the inheritance chain and explain the purpose of each level."
+        },
+        {
+          "query_id": "Q10",
+          "category": "Impact Analysis",
+          "prompt_text": "What components depend on `DiskCacheStrategy`? How does changing the caching strategy propagate through the system?"
+        },
+        {
+          "query_id": "Q11",
+          "category": "Cross-Cutting Concerns",
+          "prompt_text": "How does Glide handle lifecycle management to prevent memory leaks? Which classes are involved in tying image requests to Android Activity/Fragment lifecycles?"
+        },
+        {
+          "query_id": "Q14",
+          "category": "Architecture Assessment",
+          "prompt_text": "Analyze the relationship between `RequestBuilder`, `BaseRequestOptions`, and `RequestOptions`. Is there evidence of the Builder pattern, and how is it structured?"
+        },
+        {
+          "query_id": "Q15",
+          "category": "Multi-Hop Reasoning",
+          "prompt_text": "Starting from the `GifDrawable` class, trace all its dependencies up to 3 hops. What subsystems of Glide does GIF support touch?"
+        }
+      ]
+    }
+  ]
+}
