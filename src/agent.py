@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 
 from claude_agent_sdk import (
@@ -18,6 +19,10 @@ log = logging.getLogger(__name__)
 
 BASELINE_TOOLS = ["Read", "Grep", "Glob"]
 MCP_SERVER_NAME = "scg"
+
+
+def _cli_path() -> str | None:
+    return os.environ.get("CLAUDE_CLI_PATH") or None
 
 
 def _build_system_prompt(config: RunConfig) -> str:
@@ -69,8 +74,10 @@ def _build_options(config: RunConfig) -> ClaudeAgentOptions:
                     "url": config.mcp_server_url,
                 }
             },
+            tools=[],
             allowed_tools=list(config.mcp_tool_names),
             permission_mode="bypassPermissions",
+            cli_path=_cli_path(),
         )
 
     return ClaudeAgentOptions(
@@ -78,8 +85,10 @@ def _build_options(config: RunConfig) -> ClaudeAgentOptions:
         cwd=config.codebase_path,
         model=config.model_name,
         max_turns=config.max_iterations,
+        tools=BASELINE_TOOLS,
         allowed_tools=BASELINE_TOOLS,
         permission_mode="bypassPermissions",
+        cli_path=_cli_path(),
     )
 
 

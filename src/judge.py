@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import re
 from typing import Any
 
@@ -38,6 +39,10 @@ JUDGE_BUILTIN_TOOLS = ["Read", "Grep", "Glob"]
 MCP_SERVER_NAME = "scg"
 
 
+def _cli_path() -> str | None:
+    return os.environ.get("CLAUDE_CLI_PATH") or None
+
+
 def _build_research_options(
     *,
     judge_model: str,
@@ -61,9 +66,11 @@ def _build_research_options(
         cwd=codebase_path,
         model=judge_model,
         max_turns=max_iterations,
+        tools=JUDGE_BUILTIN_TOOLS,
         allowed_tools=allowed,
         mcp_servers=mcp_servers,
         permission_mode="bypassPermissions",
+        cli_path=_cli_path(),
     )
 
 
@@ -72,9 +79,11 @@ def _build_scoring_options(*, judge_model: str, codebase_path: str) -> ClaudeAge
         system_prompt=JUDGE_SCORE_PROMPT,
         cwd=codebase_path,
         model=judge_model,
-        max_turns=1,
+        max_turns=2,
+        tools=[],
         allowed_tools=[],
         permission_mode="bypassPermissions",
+        cli_path=_cli_path(),
     )
 
 
@@ -104,7 +113,13 @@ def _parse_score(content: str) -> tuple[float, str]:
 
 
 async def _collect_text(gen) -> tuple[str, int, int]:
-    """Drain an SDK query generator, returning (joined_text, input_tokens, output_tokens)."""
+    """Drain an SDK query generator, returning (joined_text, input_tokens, output_tokens).
+
+    Breaks immediately on ResultMessage. The bundled claude CLI exits with
+    code 1 on error_max_turns; if we keep iterating past ResultMessage the SDK
+    raises ProcessError when the subprocess exits non-zero — but we already
+    have everything we need from ResultMessage.
+    """
     blocks: list[str] = []
     in_tok = out_tok = 0
     async for msg in gen:
@@ -116,6 +131,12 @@ async def _collect_text(gen) -> tuple[str, int, int]:
             usage = msg.usage or {}
             in_tok = usage.get("input_tokens", 0)
             out_tok = usage.get("output_tokens", 0)
+            if msg.is_error and msg.subtype == "error_max_turns":
+                log.warning(
+                    "Judge hit max_turns (%d turns). Research may be incomplete.",
+                    msg.num_turns,
+                )
+            break
     return "\n".join(blocks).strip(), in_tok, out_tok
 
 

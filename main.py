@@ -72,8 +72,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--judge-max-iterations",
         type=int,
-        default=10,
-        help="Max iterations for the judge agent (default: 10)",
+        default=30,
+        help="Max iterations for the judge agent (default: 30)",
     )
     p.add_argument(
         "--export-csv",

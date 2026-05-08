@@ -21,7 +21,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--db", default="results.db")
     p.add_argument("--queries", default="queries.json", help="Path to queries JSON")
     p.add_argument("--judge-model", default="claude-sonnet-4-5")
-    p.add_argument("--judge-max-iterations", type=int, default=10)
+    p.add_argument("--judge-max-iterations", type=int, default=30)
     p.add_argument("--mcp-url", default="http://localhost:8080/mcp")
     p.add_argument("--codebases-root", default="codebases")
     p.add_argument(
