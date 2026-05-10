@@ -1,6 +1,8 @@
 import logging
 import os
+import re
 import time
+from pathlib import Path
 
 from claude_agent_sdk import (
     AssistantMessage,
@@ -25,6 +27,20 @@ def _cli_path() -> str | None:
     return os.environ.get("CLAUDE_CLI_PATH") or None
 
 
+_FRONTMATTER_RE = re.compile(r"\A---\n.*?\n---\n", re.DOTALL)
+
+
+def _load_skill_body(skill_path: str | os.PathLike[str]) -> str:
+    """Read a SKILL.md file and return its body with the YAML frontmatter stripped.
+
+    The frontmatter (name/description) is metadata used for triggering, not
+    instructions for the model — strip it before injecting into the system
+    prompt so we send only the actual guidance.
+    """
+    text = Path(skill_path).read_text(encoding="utf-8")
+    return _FRONTMATTER_RE.sub("", text, count=1).strip()
+
+
 def _build_system_prompt(config: RunConfig) -> str:
     base = (
         f"You are a senior {config.project_language} developer and expert on the "
@@ -33,6 +49,17 @@ def _build_system_prompt(config: RunConfig) -> str:
         "You have access to tools that let you explore the codebase.\n"
         "Use them to answer the user's question thoroughly and accurately.\n\n"
     )
+
+    closing = (
+        "When you have gathered enough information, provide your final answer directly\n"
+        "without calling any more tools."
+    )
+
+    if config.skill_enabled:
+        if not config.skill_path:
+            raise ValueError("skill_enabled=True requires skill_path to be set")
+        skill_body = _load_skill_body(config.skill_path)
+        return f"{base}{skill_body}\n\n{closing}"
 
     if config.is_mcp_enabled:
         strategy = (
@@ -50,11 +77,6 @@ def _build_system_prompt(config: RunConfig) -> str:
             "3. Follow imports or function calls by further searching if necessary.\n"
             "4. Synthesize your findings into a clear, structured answer.\n\n"
         )
-
-    closing = (
-        "When you have gathered enough information, provide your final answer directly\n"
-        "without calling any more tools."
-    )
 
     return base + strategy + closing
 

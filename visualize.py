@@ -10,7 +10,7 @@ import pandas as pd
 import seaborn as sns
 
 # ── palette ──────────────────────────────────────────────────────────────────
-PALETTE = {"Baseline": "#4C9BE8", "MCP": "#E8834C"}
+PALETTE = {"Baseline": "#4C9BE8", "MCP": "#E8834C", "Skill": "#6BBF59"}
 sns.set_theme(style="whitegrid", font_scale=1.05)
 
 
@@ -118,12 +118,12 @@ def plot_token_overview(df_c: pd.DataFrame, out: Path) -> None:
     if df_c.empty:
         return
 
-    # 2a  total tokens box by project
+    # 2a  weighted tokens box by project — input-equivalent cost
     fig, ax = plt.subplots(figsize=(12, 5))
     sns.boxplot(
         data=df_c,
         x="project_name",
-        y="total_tokens",
+        y="weighted_tokens",
         hue="Agent Mode",
         palette=PALETTE,
         showmeans=True,
@@ -134,63 +134,86 @@ def plot_token_overview(df_c: pd.DataFrame, out: Path) -> None:
         },
         ax=ax,
     )
-    ax.set_title("Total Tokens per Run — by Project (X = Average)")
-    ax.set_ylabel("Tokens")
+    ax.set_title("Weighted Cost per Run — by Project (X = Average)\ninput + output×5 + cache_cr×1.25 + cache_rd×0.10")
+    ax.set_ylabel("Weighted tokens (input-equivalent)")
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(_fmt_k))
     _save(fig, out, "02a_total_tokens_by_project.png")
 
-    # 2b  total tokens per query_id
+    # 2b  weighted tokens per query_id
     fig, ax = plt.subplots(figsize=(14, 5))
     sns.barplot(
         data=df_c,
         x="query_id",
-        y="total_tokens",
+        y="weighted_tokens",
         hue="Agent Mode",
         palette=PALETTE,
         errorbar=None,
         ax=ax,
     )
-    ax.set_title("Average Total Tokens — by Query")
+    ax.set_title("Average Weighted Cost — by Query")
     ax.set_xlabel("Query ID")
-    ax.set_ylabel("Avg Tokens")
+    ax.set_ylabel("Avg weighted tokens")
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(_fmt_k))
     plt.xticks(rotation=45, ha="right")
     _save(fig, out, "02b_total_tokens_by_query.png")
 
-    # 2c  prompt vs completion stacked bar (mode-level means)
-    grp = (
-        df_c.groupby("Agent Mode")[["total_prompt_tokens", "total_completion_tokens"]]
-        .mean()
-        .reset_index()
-    )
-    fig, ax = plt.subplots(figsize=(7, 5))
+    # 2c  cost composition: how each billable component contributes to the
+    # weighted total per mode. Bars stack the four weighted contributions
+    # (input, output×5, cache_cr×1.25, cache_rd×0.10) so the reader sees what
+    # the user actually pays for, not just input + output.
+    cols = [
+        "total_prompt_tokens",
+        "total_completion_tokens",
+        "total_cache_creation_tokens",
+        "total_cache_read_tokens",
+    ]
+    available = [c for c in cols if c in df_c.columns]
+    grp = df_c.groupby("Agent Mode")[available].mean().reset_index()
+
+    weights = {
+        "total_prompt_tokens": 1.0,
+        "total_completion_tokens": 5.0,
+        "total_cache_creation_tokens": 1.25,
+        "total_cache_read_tokens": 0.10,
+    }
+    nice_labels = {
+        "total_prompt_tokens": "Input (×1)",
+        "total_completion_tokens": "Output (×5)",
+        "total_cache_creation_tokens": "Cache create (×1.25)",
+        "total_cache_read_tokens": "Cache read (×0.10)",
+    }
+    component_colors = {
+        "total_prompt_tokens": "#5B8DB8",
+        "total_completion_tokens": "#E87B4C",
+        "total_cache_creation_tokens": "#A38FCB",
+        "total_cache_read_tokens": "#9DBF7E",
+    }
+
+    fig, ax = plt.subplots(figsize=(8, 5))
     x = np.arange(len(grp))
-    w = 0.5
-    bars_p = ax.bar(x, grp["total_prompt_tokens"], w, label="Prompt", color="#5B8DB8")
-    bars_c = ax.bar(
-        x,
-        grp["total_completion_tokens"],
-        w,
-        bottom=grp["total_prompt_tokens"],
-        label="Completion",
-        color="#E87B4C",
-    )
+    w = 0.55
+    bottom = np.zeros(len(grp))
+    for c in available:
+        weighted_vals = grp[c].to_numpy() * weights[c]
+        ax.bar(x, weighted_vals, w, bottom=bottom,
+               label=nice_labels[c], color=component_colors[c])
+        bottom += weighted_vals
+
     ax.set_xticks(x)
     ax.set_xticklabels(grp["Agent Mode"])
-    ax.set_title("Avg Prompt vs Completion Tokens (per run)")
-    ax.set_ylabel("Tokens")
+    ax.set_title("Weighted Cost Composition (avg per run)\nbars sum to weighted_tokens")
+    ax.set_ylabel("Weighted tokens (input-equivalent)")
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(_fmt_k))
-    ax.legend()
-    # annotate totals
-    for xi, (p, c) in enumerate(
-        zip(grp["total_prompt_tokens"], grp["total_completion_tokens"])
-    ):
-        ax.text(xi, p + c + 200, f"{(p + c) / 1000:.1f}k", ha="center", fontsize=9)
+    ax.legend(loc="upper right", fontsize=9)
+    # annotate totals on top of each bar
+    for xi, total in enumerate(bottom):
+        ax.text(xi, total + total * 0.01, f"{total / 1000:.1f}k",
+                ha="center", fontsize=9, weight="bold")
     _save(fig, out, "02c_prompt_vs_completion.png")
 
-    # 2d  tokens per iteration
+    # 2d  weighted tokens per iteration — context-growth × cost
     df_c = df_c.copy()
-    df_c["tokens_per_iter"] = df_c["total_tokens"] / df_c["iterations"].clip(lower=1)
+    df_c["tokens_per_iter"] = df_c["weighted_tokens"] / df_c["iterations"].clip(lower=1)
     fig, ax = plt.subplots(figsize=(10, 5))
     sns.boxplot(
         data=df_c,
@@ -201,8 +224,8 @@ def plot_token_overview(df_c: pd.DataFrame, out: Path) -> None:
         legend=False,
         ax=ax,
     )
-    ax.set_title("Tokens per Iteration (context-growth proxy)")
-    ax.set_ylabel("Tokens / iteration")
+    ax.set_title("Weighted Tokens per Iteration (context-growth × cost proxy)")
+    ax.set_ylabel("Weighted tokens / iteration")
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(_fmt_k))
     _save(fig, out, "02d_tokens_per_iteration.png")
 
@@ -242,43 +265,34 @@ def plot_token_overview(df_c: pd.DataFrame, out: Path) -> None:
 
     queries = sorted(df_stack["query_id"].unique())
     x = np.arange(len(queries))
-    width = 0.35
+
+    # Three shades per mode (light/medium/dark) so each stack reads as one mode.
+    SHADES = {
+        "Baseline": ("#8FBCE6", "#4C9BE8", "#2D5A88"),
+        "MCP":      ("#F1AC88", "#E8834C", "#A8411D"),
+        "Skill":    ("#A8DDA0", "#6BBF59", "#3F8230"),
+    }
+    modes_present = [m for m in ("Baseline", "MCP", "Skill")
+                     if m in grp_stack["Agent Mode"].unique()]
+    n_modes = len(modes_present)
+    width = 0.85 / max(n_modes, 1)
 
     fig, ax = plt.subplots(figsize=(14, 6))
 
-    for i, mode in enumerate(["Baseline", "MCP"]):
+    for i, mode in enumerate(modes_present):
         mode_data = grp_stack[grp_stack["Agent Mode"] == mode].set_index("query_id")
 
         base = mode_data.reindex(queries)["base_prompt_tokens"].fillna(0)
         tools = mode_data.reindex(queries)["tool_tokens"].fillna(0)
         comp = mode_data.reindex(queries)["total_completion_tokens"].fillna(0)
 
-        offset = (i - 0.5) * width * 1.05
+        # Center the n_modes group of bars on each query tick.
+        offset = (i - (n_modes - 1) / 2) * width
+        light, mid, dark = SHADES.get(mode, ("#cccccc", "#888888", "#444444"))
 
-        # Plot stacked bars
-        ax.bar(
-            x + offset,
-            base,
-            width,
-            label=f"Base Prompt ({mode})",
-            color="#8FBCE6" if mode == "Baseline" else "#F1AC88",
-        )
-        ax.bar(
-            x + offset,
-            tools,
-            width,
-            bottom=base,
-            label=f"Tool Results ({mode})",
-            color="#4C9BE8" if mode == "Baseline" else "#E8834C",
-        )
-        ax.bar(
-            x + offset,
-            comp,
-            width,
-            bottom=base + tools,
-            label=f"Completion ({mode})",
-            color="#2D5A88" if mode == "Baseline" else "#A8411D",
-        )
+        ax.bar(x + offset, base, width, label=f"Base Prompt ({mode})", color=light)
+        ax.bar(x + offset, tools, width, bottom=base, label=f"Tool Results ({mode})", color=mid)
+        ax.bar(x + offset, comp, width, bottom=base + tools, label=f"Completion ({mode})", color=dark)
 
     ax.set_title("Average Token Breakdown by Query")
     ax.set_xticks(x)
@@ -289,36 +303,48 @@ def plot_token_overview(df_c: pd.DataFrame, out: Path) -> None:
 
     _save(fig, out, "02e_token_breakdown_by_query.png")
 
-    # 2f Tabular visualization of Average Tokens per Query (Image Output)
+    # 2f Tabular visualization of Average Weighted Tokens per Query (Image Output)
+    # Tri-mode: Baseline / MCP / Skill, with diffs vs. Baseline (the cheapest-
+    # baseline-relative comparison the reader usually wants).
     query_stats = (
-        df_c.groupby(["query_id", "Agent Mode"])["total_tokens"]
+        df_c.groupby(["query_id", "Agent Mode"])["weighted_tokens"]
         .mean()
         .unstack("Agent Mode")
     )
 
-    if "Baseline" in query_stats and "MCP" in query_stats:
+    if "Baseline" in query_stats:
+        modes_present = [m for m in ("Baseline", "MCP", "Skill") if m in query_stats.columns]
         table_data = []
         for q, row in query_stats.iterrows():
+            cells = [q]
             base = row.get("Baseline", float("nan"))
-            mcp = row.get("MCP", float("nan"))
-            diff = (
-                mcp - base if not pd.isna(base) and not pd.isna(mcp) else float("nan")
-            )
+            for m in modes_present:
+                v = row.get(m, float("nan"))
+                cells.append(f"{v:,.0f}" if not pd.isna(v) else "N/A")
+            # Diff columns: each non-baseline mode minus Baseline
+            for m in modes_present:
+                if m == "Baseline":
+                    continue
+                v = row.get(m, float("nan"))
+                d = v - base if not pd.isna(base) and not pd.isna(v) else float("nan")
+                cells.append(f"{d:+,.0f}" if not pd.isna(d) else "N/A")
+            table_data.append(cells)
 
-            base_str = f"{base:,.0f}" if not pd.isna(base) else "N/A"
-            mcp_str = f"{mcp:,.0f}" if not pd.isna(mcp) else "N/A"
-            diff_str = f"{diff:+,.0f}" if not pd.isna(diff) else "N/A"
+        col_labels = ["Query ID"] + modes_present + [
+            f"Diff ({m} - Base)" for m in modes_present if m != "Baseline"
+        ]
 
-            table_data.append([q, base_str, mcp_str, diff_str])
-
-        fig, ax = plt.subplots(figsize=(7, 0.8 + 0.35 * len(table_data)))
+        fig, ax = plt.subplots(figsize=(2 + 1.5 * len(col_labels), 0.8 + 0.35 * len(table_data)))
         ax.axis("tight")
         ax.axis("off")
-        ax.set_title("Average Total Tokens by Query", weight="bold", size=14, pad=15)
+        ax.set_title(
+            "Average Weighted Cost (input-equivalent tokens) by Query",
+            weight="bold", size=14, pad=15,
+        )
 
         table = ax.table(
             cellText=table_data,
-            colLabels=["Query ID", "Baseline", "MCP", "Diff (MCP - Base)"],
+            colLabels=col_labels,
             loc="center",
             cellLoc="center",
         )
@@ -437,20 +463,20 @@ def plot_tool_analysis(df_c: pd.DataFrame, out: Path) -> None:
     plt.xticks(rotation=40, ha="right")
     _save(fig, out, "03d_tool_truncation_rate.png")
 
-    # 3e  scatter: tokens per run vs tool calls count, coloured by mode
+    # 3e  scatter: weighted cost per run vs tool calls count, coloured by mode
     fig, ax = plt.subplots(figsize=(9, 6))
     for mode, grp in df_c.groupby("Agent Mode"):
         ax.scatter(
             grp["total_tool_calls"],
-            grp["total_tokens"],
+            grp["weighted_tokens"],
             label=mode,
             color=PALETTE[mode],
             alpha=0.6,
             s=60,
         )
-    ax.set_title("Total Tokens vs # Tool Calls (per run)")
+    ax.set_title("Weighted Cost vs # Tool Calls (per run)")
     ax.set_xlabel("# Tool calls")
-    ax.set_ylabel("Total tokens")
+    ax.set_ylabel("Weighted tokens")
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(_fmt_k))
     ax.legend(title="Mode")
     _save(fig, out, "03e_tokens_vs_tool_calls.png")
@@ -534,7 +560,7 @@ def plot_status(df: pd.DataFrame, out: Path) -> None:
 # ── main ──────────────────────────────────────────────────────────────────────
 
 
-def plot_benchmark_results(db_path: str, output_dir: str) -> None:
+def plot_benchmark_results(db_path: str, output_dir: str, model_filter: str | None = None) -> None:
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
 
@@ -546,7 +572,47 @@ def plot_benchmark_results(db_path: str, output_dir: str) -> None:
         print("No data found in the database.")
         return
 
-    df["Agent Mode"] = df["is_mcp_enabled"].map({0: "Baseline", 1: "MCP"})
+    if model_filter:
+        before = len(df)
+        df = df[df["model_name"] == model_filter].copy()
+        print(f"Filtered to model={model_filter}: {len(df)} of {before} runs.")
+        if df.empty:
+            print(f"No runs match model_name={model_filter!r}.")
+            return
+
+    # Tri-state mode label: skill_enabled supersedes is_mcp_enabled because in
+    # skill mode both flags are True. Older rows lack the column and default to 0.
+    skill_col = df["skill_enabled"] if "skill_enabled" in df.columns else 0
+
+    def _label(is_mcp: int, is_skill: int) -> str:
+        if is_skill:
+            return "Skill"
+        if is_mcp:
+            return "MCP"
+        return "Baseline"
+
+    df["Agent Mode"] = [
+        _label(int(m), int(s))
+        for m, s in zip(df["is_mcp_enabled"], skill_col if hasattr(skill_col, "__iter__") else [skill_col] * len(df))
+    ]
+
+    # Anthropic billing weights (relative to base input rate):
+    #   input        : 1.00x
+    #   output       : 5.00x
+    #   cache_create : 1.25x
+    #   cache_read   : 0.10x
+    # `weighted_tokens` collapses these into a single input-equivalent number so
+    # comparisons reflect what the user actually pays. The unweighted
+    # `total_tokens` (input + output only) is left in place for backward
+    # compatibility but is misleading on its own.
+    cc = df["total_cache_creation_tokens"] if "total_cache_creation_tokens" in df.columns else 0
+    cr = df["total_cache_read_tokens"] if "total_cache_read_tokens" in df.columns else 0
+    df["weighted_tokens"] = (
+        df["total_prompt_tokens"]
+        + df["total_completion_tokens"] * 5
+        + cc * 1.25
+        + cr * 0.10
+    )
     df_completed = df[df["status"] == "completed"].copy()
 
     print(f"\nLoaded {len(df)} runs ({len(df_completed)} completed).")
@@ -565,6 +631,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Visualize benchmark results")
     parser.add_argument("--db", default="results.db", help="Path to SQLite database")
     parser.add_argument("--out", default="plots", help="Directory to save plots")
+    parser.add_argument(
+        "--model",
+        default=None,
+        help="Restrict plots to runs with this exact model_name (e.g. claude-haiku-4-5). "
+        "Default: include all models.",
+    )
     args = parser.parse_args()
 
     db_path = Path(args.db)
@@ -572,7 +644,7 @@ def main() -> None:
         print(f"Error: Database '{args.db}' does not exist.")
         return
 
-    plot_benchmark_results(args.db, args.out)
+    plot_benchmark_results(args.db, args.out, model_filter=args.model)
 
 
 if __name__ == "__main__":

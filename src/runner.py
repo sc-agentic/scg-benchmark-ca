@@ -54,6 +54,7 @@ class BenchmarkRunner:
         judge_model: str = "claude-sonnet-4-5",
         judge_max_iterations: int = 10,
         concurrency: int = 1,
+        skill_path: str | None = None,
     ) -> None:
         self._db = db
         self._projects = projects
@@ -67,6 +68,7 @@ class BenchmarkRunner:
         self._judge_model = judge_model
         self._judge_max_iterations = judge_max_iterations
         self._concurrency = concurrency
+        self._skill_path = skill_path
 
     def _count_total_runs(self) -> int:
         total_queries = sum(len(p.queries) for p in self._projects)
@@ -104,10 +106,16 @@ class BenchmarkRunner:
             log.info("=== Project: %s (folder: %s) ===", project.name, codebase_path)
 
             for mode in self._modes:
-                is_mcp = mode == "mcp"
+                # 'skill' mode = MCP tools + SKILL.md guidance injected into the
+                # system prompt. Both flags are True so the agent gets MCP
+                # routing AND the navigation guidance.
+                is_mcp = mode in ("mcp", "skill")
+                skill_enabled = mode == "skill"
                 config = RunConfig(
                     model_name=self._model,
                     is_mcp_enabled=is_mcp,
+                    skill_enabled=skill_enabled,
+                    skill_path=self._skill_path if skill_enabled else None,
                     project_name=project.name,
                     project_description=project.description,
                     project_language=project.language,
@@ -156,7 +164,7 @@ class BenchmarkRunner:
         label = (
             f"[{progress}/{total}] "
             f"{config.project_name} | {config.model_name} | "
-            f"{'MCP' if config.is_mcp_enabled else 'Baseline'} | "
+            f"{config.mode_label} | "
             f"{query.query_id} | run {run_number}"
         )
         log.info("-> %s", label)
@@ -172,6 +180,7 @@ class BenchmarkRunner:
                 query_id=query.query_id,
                 query_category=query.category,
                 is_mcp_enabled=config.is_mcp_enabled,
+                skill_enabled=config.skill_enabled,
                 run_number=run_number,
                 total_prompt_tokens=0,
                 total_completion_tokens=0,
@@ -192,6 +201,7 @@ class BenchmarkRunner:
             query_id=query.query_id,
             query_category=query.category,
             is_mcp_enabled=config.is_mcp_enabled,
+            skill_enabled=config.skill_enabled,
             run_number=run_number,
             total_prompt_tokens=state.cumulative_prompt_tokens,
             total_completion_tokens=state.cumulative_completion_tokens,

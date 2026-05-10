@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import logging
 import sys
+from pathlib import Path
 
 from dotenv import load_dotenv
 from src.database import DatabaseManager
@@ -38,14 +39,26 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--mode",
-        choices=["baseline", "mcp", "both"],
-        default="both",
-        help="Which agent mode(s) to run (default: both)",
+        choices=["baseline", "mcp", "skill", "both", "all"],
+        default="all",
+        help=(
+            "Which agent mode(s) to run. "
+            "baseline=Read/Grep/Glob; mcp=MCP tools only; skill=MCP tools + SKILL.md "
+            "guidance; both=baseline+mcp (legacy); all=baseline+mcp+skill (default)."
+        ),
     )
     p.add_argument(
         "--mcp-url",
         default="http://localhost:8080/mcp",
         help="MCP server URL (default: http://localhost:8080/mcp)",
+    )
+    p.add_argument(
+        "--skill-path",
+        default="skills/scg-navigator/SKILL.md",
+        help=(
+            "Path to the SKILL.md whose body is injected into the system prompt "
+            "in skill mode (default: skills/scg-navigator/SKILL.md)."
+        ),
     )
     p.add_argument(
         "--codebases-root",
@@ -139,16 +152,32 @@ def main() -> None:
             sys.exit(1)
 
     modes: list[str] = []
-    if args.mode in ("baseline", "both"):
+    if args.mode in ("baseline", "both", "all"):
         modes.append("baseline")
-    if args.mode in ("mcp", "both"):
+    if args.mode in ("mcp", "both", "all"):
         modes.append("mcp")
+    if args.mode in ("skill", "all"):
+        modes.append("skill")
 
-    # Pre-flight: MCP server must be reachable if any mcp run is scheduled.
+    # Pre-flight: skill mode needs SKILL.md on disk. We refuse to run rather than
+    # silently fall back to plain MCP under the wrong label.
+    skill_path: str | None = None
+    if "skill" in modes:
+        candidate = Path(args.skill_path)
+        if not candidate.is_file():
+            print(
+                f"ERROR: --mode includes 'skill' but SKILL.md was not found at "
+                f"{candidate}. Pass --skill-path or drop 'skill' from --mode.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        skill_path = str(candidate)
+
+    # Pre-flight: MCP server must be reachable if any mcp/skill run is scheduled.
     # Otherwise the benchmark would silently produce baseline-only results
     # under the wrong label.
     mcp_tool_names: tuple[str, ...] = ()
-    if "mcp" in modes:
+    if "mcp" in modes or "skill" in modes:
         try:
             names = asyncio.run(list_mcp_tool_names(args.mcp_url))
         except Exception as exc:
@@ -186,6 +215,8 @@ def main() -> None:
     print(f"  Database:   {args.db}")
     if mcp_tool_names:
         print(f"  MCP tools:  {len(mcp_tool_names)} discovered at {args.mcp_url}")
+    if skill_path:
+        print(f"  Skill:      {skill_path}")
     print()
 
     with DatabaseManager(args.db) as db:
@@ -202,6 +233,7 @@ def main() -> None:
             judge_model=args.judge_model,
             judge_max_iterations=args.judge_max_iterations,
             concurrency=args.concurrency,
+            skill_path=skill_path,
         )
         summary = asyncio.run(runner.run_all())
 

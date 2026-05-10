@@ -70,6 +70,8 @@ class AgentState:
 class RunConfig:
     model_name: str
     is_mcp_enabled: bool
+    skill_enabled: bool = False
+    skill_path: str | None = None
     project_name: str = ""
     project_description: str = ""
     project_language: str = "Java"
@@ -77,3 +79,11 @@ class RunConfig:
     mcp_server_url: str = "http://localhost:8080/mcp"
     mcp_tool_names: tuple[str, ...] = ()
     codebase_path: str = "codebases/glide"
+
+    @property
+    def mode_label(self) -> str:
+        if self.skill_enabled:
+            return "Skill"
+        if self.is_mcp_enabled:
+            return "MCP"
+        return "Baseline"

@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS benchmark_runs (
     query_id        TEXT    NOT NULL,
     query_category  TEXT    NOT NULL,
     is_mcp_enabled  INTEGER NOT NULL,  -- 0 or 1
+    skill_enabled   INTEGER NOT NULL DEFAULT 0,  -- 0 or 1; True ⇒ MCP + SKILL.md injected
     run_number      INTEGER NOT NULL,
     total_prompt_tokens         INTEGER NOT NULL,
     total_completion_tokens     INTEGER NOT NULL,
@@ -54,6 +55,7 @@ class DatabaseManager:
             ("project_name", "TEXT DEFAULT ''"),
             ("total_cache_creation_tokens", "INTEGER DEFAULT 0"),
             ("total_cache_read_tokens", "INTEGER DEFAULT 0"),
+            ("skill_enabled", "INTEGER NOT NULL DEFAULT 0"),
         ]
         for col, typ in migrations:
             if col not in existing:
@@ -68,6 +70,7 @@ class DatabaseManager:
         query_id: str,
         query_category: str,
         is_mcp_enabled: bool,
+        skill_enabled: bool = False,
         run_number: int,
         total_prompt_tokens: int,
         total_completion_tokens: int,
@@ -88,13 +91,13 @@ class DatabaseManager:
             """
             INSERT INTO benchmark_runs (
                 timestamp, project_name, model_name, query_id, query_category,
-                is_mcp_enabled, run_number,
+                is_mcp_enabled, skill_enabled, run_number,
                 total_prompt_tokens, total_completion_tokens,
                 total_cache_creation_tokens, total_cache_read_tokens,
                 total_tokens, total_tool_calls, iterations, duration_seconds,
                 final_answer, tool_calls_log, status,
                 correctness_score, judge_reasoning, judge_model
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 datetime.now(timezone.utc).isoformat(),
@@ -103,6 +106,7 @@ class DatabaseManager:
                 query_id,
                 query_category,
                 int(is_mcp_enabled),
+                int(skill_enabled),
                 run_number,
                 total_prompt_tokens,
                 total_completion_tokens,
@@ -159,6 +163,7 @@ class DatabaseManager:
         query_id: str | None = None,
         model_name: str | None = None,
         is_mcp_enabled: bool | None = None,
+        skill_enabled: bool | None = None,
     ) -> list[dict[str, Any]]:
         clauses: list[str] = []
         params: list[Any] = []
@@ -172,6 +177,9 @@ class DatabaseManager:
         if is_mcp_enabled is not None:
             clauses.append("is_mcp_enabled = ?")
             params.append(int(is_mcp_enabled))
+        if skill_enabled is not None:
+            clauses.append("skill_enabled = ?")
+            params.append(int(skill_enabled))
 
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         rows = self._conn.execute(

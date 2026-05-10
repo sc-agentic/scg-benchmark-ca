@@ -104,7 +104,12 @@ async def main() -> None:
             run_id = run["id"]
             query_id = run["query_id"]
             project = run["project_name"]
-            mode = "MCP" if run["is_mcp_enabled"] else "Baseline"
+            if run.get("skill_enabled"):
+                mode = "Skill"
+            elif run["is_mcp_enabled"]:
+                mode = "MCP"
+            else:
+                mode = "Baseline"
             answer = run.get("final_answer") or ""
 
             print(f"  [{i}/{len(runs)}] id={run_id}  {project} | {mode} | {query_id}")
