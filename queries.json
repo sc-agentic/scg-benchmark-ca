@@ -57,6 +57,34 @@
           "prompt_text": "Starting from the `GifDrawable` class, trace all its dependencies up to 3 hops. What subsystems of Glide does GIF support touch?"
         }
       ]
+    },
+    {
+      "name": "DayTrader7",
+      "folder": "daytrader7",
+      "description": "DayTrader is a Java EE 7 sample application that simulates an online stock-trading system (originally an IBM WebSphere benchmark). It has a layered architecture: web servlets/JSF -> business EJBs -> JPA entities, with a parallel direct-JDBC implementation of the same business interface.",
+      "language": "Java",
+      "queries": [
+        {
+          "query_id": "DT4",
+          "category": "Critical Entities",
+          "prompt_text": "What is the role of the `TradeAction` class in DayTrader, and what are its direct dependencies?"
+        },
+        {
+          "query_id": "DT8",
+          "category": "Inheritance",
+          "prompt_text": "What is the class hierarchy of the `TradeServices` interface in DayTrader? List the implementing classes and explain the purpose of each implementation."
+        },
+        {
+          "query_id": "DT10",
+          "category": "Impact Analysis",
+          "prompt_text": "What components depend on the `OrderDataBean` entity? How does changing the order data structure propagate through the system?"
+        },
+        {
+          "query_id": "DT15",
+          "category": "Multi-Hop Reasoning",
+          "prompt_text": "Starting from the `TradeAppServlet` class, trace all its dependencies up to 3 hops. What subsystems of DayTrader does the user-facing servlet touch?"
+        }
+      ]
     }
   ]
 }

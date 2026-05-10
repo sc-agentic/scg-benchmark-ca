@@ -560,7 +560,7 @@ def plot_status(df: pd.DataFrame, out: Path) -> None:
 # ── main ──────────────────────────────────────────────────────────────────────
 
 
-def plot_benchmark_results(db_path: str, output_dir: str, model_filter: str | None = None) -> None:
+def plot_benchmark_results(db_path: str, output_dir: str, model_filter: str | None = None, project_filter: str | None = None) -> None:
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
 
@@ -578,6 +578,14 @@ def plot_benchmark_results(db_path: str, output_dir: str, model_filter: str | No
         print(f"Filtered to model={model_filter}: {len(df)} of {before} runs.")
         if df.empty:
             print(f"No runs match model_name={model_filter!r}.")
+            return
+
+    if project_filter:
+        before = len(df)
+        df = df[df["project_name"] == project_filter].copy()
+        print(f"Filtered to project={project_filter}: {len(df)} of {before} runs.")
+        if df.empty:
+            print(f"No runs match project_name={project_filter!r}.")
             return
 
     # Tri-state mode label: skill_enabled supersedes is_mcp_enabled because in
@@ -637,6 +645,12 @@ def main() -> None:
         help="Restrict plots to runs with this exact model_name (e.g. claude-haiku-4-5). "
         "Default: include all models.",
     )
+    parser.add_argument(
+        "--project",
+        default=None,
+        help="Restrict plots to runs with this exact project_name (e.g. DayTrader7 or Glide). "
+        "Default: include all projects.",
+    )
     args = parser.parse_args()
 
     db_path = Path(args.db)
@@ -644,7 +658,7 @@ def main() -> None:
         print(f"Error: Database '{args.db}' does not exist.")
         return
 
-    plot_benchmark_results(args.db, args.out, model_filter=args.model)
+    plot_benchmark_results(args.db, args.out, model_filter=args.model, project_filter=args.project)
 
 
 if __name__ == "__main__":
