@@ -3,108 +3,128 @@
 ## Setup
 
 - **Agent model**: `claude-sonnet-4-6`
-- **Judge model**: `claude-sonnet-4-6`, 50-turn max
-- **Test set**: Q4 (W1 critical entity), Q8 (W3 hierarchy), Q10 (W2 impact), Q15 (W4 multi-hop)
-- **Sample**: 5 reruns × 3 modes × 4 queries = **60 runs** (Skill Q8 reflects v3 MCP server only)
-- **Modes**: Baseline (Read/Grep/Glob) · MCP (graph tools only) · Skill (graph tools + `SKILL.md` body injected into system prompt)
+- **Judge model**: `claude-sonnet-4-6`, 50-turn max, **rubric_judge v2 methodology** (see "Judge methodology — ablation tests" below)
+- **Test set**: Q4 (W1 critical entity), Q8 (W3 hierarchy), Q10 (W2 impact), Q15 (W4 multi-hop) — all on Glide 5.0.5
+- **Sample**: 5 reruns × **4 modes** × 4 queries = **80 runs**
+- **Modes**:
+  - **Baseline** — `Read`/`Grep`/`Glob` only
+  - **MCP** — SCG MCP graph tools only (no skill, no built-in tools)
+  - **Skill** — MCP graph tools + `SKILL.md` body injected into system prompt
+  - **Skill+Tools** — Skill mode AND built-in `Read`/`Grep`/`Glob` allowed alongside MCP
 - **Cost metric**: `weighted_tokens = input + output×5 + cache_create×1.25 + cache_read×0.10` (Anthropic billing weights, in input-equivalent units)
-- **Note**: 5 of the original Q15+Skill judge runs hit an org-monthly-limit during the initial sweep and were re-judged via `reevaluate.py`. All scores are now valid.
 
-## Headline (n=20 per mode, Q4/Q8/Q10/Q15)
+## Headline (n=20 per mode)
 
-| Mode | Weighted cost μ | Score μ | **Cost / 1.0 score** |
-|---|---|---|---|
-| Baseline | 142,292 | **0.90** | 158,102 |
-| MCP | 101,353 | 0.65 | 155,929 |
-| **Skill (v3)** | **69,995** | 0.73 | **96,545** ⭐ |
-
-**Skill v3 is 31% cheaper than MCP, 51% cheaper than Baseline, and ~38–39% better on cost-per-correctness than either.** Score-wise, Skill recovers ~70% of the gap between MCP (0.65) and Baseline (0.90) while costing half as much as Baseline.
-
-The v3 fix (one MCP server change: `get_class_hierarchy` now renders a proper ASCII tree server-side instead of returning a depth-indented edge list) lifted Q8 Skill from 0.60 → 0.70 and improved aggregate by 0.03 score with a 1.7k weighted cost drop. See `skills/scg-navigator/IMPLEMENTATION_NOTES.md` v3 section.
-
-## Per-query (weighted cost / score)
-
-| Query | Workflow | Baseline | MCP | Skill (v3) | Read |
+| Mode | Score μ | Weighted cost μ | **Cost / 1.0 score** | Tool calls μ | Iterations μ |
 |---|---|---|---|---|---|
-| Q4 | Critical entity | 41,885 / **1.00** | 41,662 / 0.70 | **33,866** / 0.70 | Skill 19% cheaper than MCP at same score; Baseline perfect from Javadoc |
-| Q8 | Hierarchy | 101,403 / **0.90** | 78,282 / 0.80 | **51,554** / 0.70 | Pre-rendered tree closes 33% of v1→Baseline gap at lower cost |
-| Q10 | Impact analysis | 165,471 / **0.80** | 142,955 / 0.60 | **85,198** / 0.80 | Skill matches Baseline correctness at 49% the cost ⭐ |
-| Q15 | Multi-hop | 260,410 / **0.90** | 142,517 / 0.50 | **109,365** / 0.70 | Skill 58% cheaper than Baseline, 22pp better correctness than MCP |
+| Baseline | **0.79** | 142,293 | 180,750 | 32.7 | 33.7 |
+| MCP | 0.70 | 101,354 | 144,791 | 27.4 | 28.4 |
+| Skill | 0.71 | **69,996** | **98,170** ⭐ | **14.8** | 15.8 |
+| **Skill+Tools** | **0.78** | 82,113 | 105,952 | 18.1 | 19.1 |
 
-All four queries are clean Skill wins on cost-per-correctness. The two queries where Baseline still leads on absolute correctness (Q4 at 1.00 vs Skill's 0.70; Q8 at 0.90 vs 0.70) are both questions where reading raw Javadoc/source gives a quotable ground-truth string — that's an inherent advantage of textual source over structured graph data.
+Two distinct "wins" depending on what you optimize for:
 
-## Why the skill wins on Sonnet 4.6
+- **Skill is the best cost-per-correctness option** — 46% cheaper than Baseline while only 8 points lower on score. Best efficiency.
+- **Skill+Tools matches Baseline on correctness (0.78 vs 0.79) at 42% lower cost** — the best absolute-quality config under budget pressure. Adding built-in tools on top of the Skill prompt closes the entire correctness gap to Baseline.
 
-It produces a dramatic tool-call reduction. Compared to MCP-only:
+MCP alone (no skill, no built-in tools) is the weakest config — pure graph tools without the SKILL.md prompt produce the worst score and middling cost.
 
-| Tool / behavior | MCP calls/run | Skill calls/run | Change |
-|---|---|---|---|
-| `get_graph_stats` (priors) | 0.0 | **1.0** | 100% adherence to W0 |
-| `search_code` (vector search) | ~6 | ~2 | 70% drop — skill says don't vector-search known names |
-| `get_node_context` (subgraph) | ~6 | ~3 | summary-first discipline |
-| `query_neo4j` (Cypher) | ~9 | ~5 | selective use |
-| **Total tool calls** | 32.9 | **16.5** | **50% drop** |
-| **Iterations** | 33.9 | 17.5 | matches |
+## Per-query breakdown
 
-Sonnet 4.6 in MCP-only mode is *much* more exploratory than Haiku was (33 tool calls vs Haiku's 11). The skill imposes discipline, halving that to ~17 calls and producing a substantially better cost-per-correctness answer. **The skill's value scales with the model's tendency to over-explore.**
+| Query | Topic | Baseline | MCP | Skill | Skill+Tools |
+|---|---|---|---|---|---|
+| Q4 | Critical entity (`Engine` role + deps) | 0.80 / 41.9k | 0.75 / 41.7k | 0.70 / 33.9k | **0.85** / 40.5k |
+| Q8 | Class hierarchy (`Target<R>`) | **0.80** / 101.4k | 0.75 / 78.3k | **0.80** / 51.6k | 0.75 / 72.1k |
+| Q10 | Impact analysis (`DiskCacheStrategy`) | 0.80 / 165.5k | 0.65 / 143.0k | 0.75 / 85.2k | **0.85** / 99.0k |
+| Q15 | Multi-hop trace (`GifDrawable`) | **0.75** / 260.4k | 0.65 / 142.5k | 0.60 / 109.4k | 0.65 / 116.8k |
+| **avg** | | **0.79** | **0.70** | **0.71** | **0.78** |
 
-## The v3 fix — pre-rendered ASCII tree in `get_class_hierarchy`
+Format: `score / weighted_cost`. Each cell is mean over 5 runs.
 
-After v2 confirmed that adding `Read` access didn't help Q8 (synthesis, not context, was the bottleneck), v3 moved the synthesis into the MCP tool itself. `get_class_hierarchy` now captures parent IDs from each path and builds a real `├──`/`└──` tree before returning. The agent quotes that tree verbatim — no flat-edges → indented-tree conversion in the model's head.
+### What the per-query chart (`01b_correctness_by_query.png`) shows
 
-**Result on Q8 × Skill × n=5**:
+- **Q4 & Q10 — Skill+Tools wins outright** (0.85 vs 0.80 Baseline). Adding built-in tools to the Skill prompt produces _better_ answers than Baseline, at ~40–60% of Baseline's cost. These are the queries where the SCG graph provides genuinely useful structure (entity dependencies, impact propagation) and the agent can spot-check with `Read`/`Grep` when needed.
+- **Q8 — Baseline & Skill tied (0.80)**. Skill_Tools slightly under (0.75). For class hierarchy questions, the raw source files contain the answer almost verbatim — `Read` access is sufficient. The skill captures the same information from graph data at half the cost.
+- **Q15 — Baseline wins (0.75)**, all other modes degraded (0.60–0.65). The multi-hop trace (3 hops from `GifDrawable`) is the hardest question across the board. The MCP graph tools partially help (vs Baseline's high cost) but no config produces a clean answer; agents lose details on hop 2 or hop 3.
 
-| Variant | Score | Tool calls | Weighted cost | Cost / 1.0 |
-|---|---|---|---|---|
-| v1 (flat edge list) | 0.60 | 9.2 | 56,752 | 94,587 |
-| **v3 (pre-rendered tree)** | **0.70** | 11.0 | **51,554** | **73,648** |
+### Patterns
 
-Score +0.10, cost −9%, cost-per-correctness −22% — a clean Pareto improvement. The lesson generalizes: when an answer requires a rigid output structure (tree, ordered chain), having the tool return that structure beats forcing the model to derive it.
+1. **The MCP-only mode is dominated** — it costs more than Skill (101k vs 70k) and scores no better (0.70 vs 0.71). There is no scenario where running MCP-only is a better choice than running with the SKILL.md prompt. Skill's discipline (priors, summary-first, selective Cypher) cuts both cost and noise.
+2. **Skill+Tools is a Pareto improvement over MCP** in absolute terms — better score (0.78 vs 0.70) at lower cost (82k vs 101k). The combination of structured graph + textual spot-check beats either alone.
+3. **Baseline still wins on the hardest query (Q15)** — when the answer requires assembling multiple specific facts across loosely-connected modules, raw source-reading produces more reliable results than graph-mediated reasoning. The SCG graph is a substitute for navigation, not for synthesis.
+4. **The error bars on `01_correctness.png` overlap heavily across all 4 modes** — the "winner" is not statistically obvious in any single comparison. With n=5 per cell × 4 queries, total n=20 per mode, the differences are real but tight. The cost differences are more dramatic and more robust.
 
-## The Q8 hierarchy weak spot — narrowed but not eliminated
+## Cost & efficiency observations
 
-| Model | Skill v1 score on Q8 | Skill v3 score on Q8 | Pattern |
-|---|---|---|---|
-| Sonnet 4.5 | 0.50 | (not re-tested) | Same ASCII-tree rendering error |
-| Sonnet 4.6 | 0.60 | **0.70** | v3 fix raises it to Q15-Skill parity |
-| Haiku 4.5 | 0.50 | (not re-tested) | Same error |
+Visible in the token-overview plots (`02a`–`02f`):
 
-v1's failure mode was the model mis-grouping nodes when converting a flat edge list into a tree. v3 sidesteps the problem by having the MCP tool return the tree already rendered. The 0.30-point gap vs Baseline (which got the tree right by reading source) shrinks to 0.20.
+- **Baseline pays a 41% premium for context** vs Skill (142k vs 70k weighted). Most of that is `Read` calls dragging large source files into context. Q15 baseline averages **260k** weighted tokens — over 2.5× the Skill+Tools cost on the same question.
+- **Skill+Tools costs ~17% more than Skill** (82k vs 70k) and the extra spend buys 7 points of correctness. Conversion rate: roughly 0.6 score points per 10k weighted tokens, which is the best "marginal return" of any config jump we see.
+- **Tool-call frequency** (`03a`): Skill makes _half_ the tool calls of Baseline (14.8 vs 32.7). Skill+Tools is 18.1 — still 45% below Baseline. The `SKILL.md` prompt does measurably reduce over-exploration even when extra tools are available.
+- **Iterations match tool calls almost 1:1** — each iteration produces one tool call on average. The skill primarily wins by exiting earlier, not by doing more per turn.
 
-Skill v3 is now **49% cheaper than Baseline on Q8** *and* closes a third of the correctness gap — the cost win compounds with a real correctness gain. Sonnet 4.5 and Haiku 4.5 weren't re-tested but the same MCP fix should benefit them similarly (the error pattern was identical).
+## Judge methodology — ablation tests
 
-## Cross-model summary (cost / 1.0 score, lower is better)
+The original benchmark used a **production judge**: Sonnet 4.6, 3-point scale (0.0 / 0.5 / 1.0), generic "is this answer correct?" prompt with no rubric. Initial cross-mode results showed a striking gap (Skill+Tools ≈ 0.50 vs Baseline 1.00 on Q4) that looked too clean. To validate, we ran a 4-variant ablation re-judging the same answers under different judge configurations.
 
-| Model | Mode | Weighted μ | Score μ | Cost / 1.0 score |
-|---|---|---|---|---|
-| **Sonnet 4.6** (n=20, Q4/Q8/Q10/Q15, Skill v3) | **Skill** | **69,995** | 0.73 | **96,545** ⭐ |
-| Haiku 4.5 (n=20, Q4/Q8/Q10/Q15) | Skill | 54,378 | 0.62 | 87,706 |
-| Sonnet 4.5 (n=9, Q8/Q10/Q15) | Skill | 81,488 | 0.61 | 133,587 |
-| Sonnet 4.6 (n=15, Q8/Q10/Q15, Skill v1, historical) | Skill | 83,772 | 0.70 | 119,675 |
+### The 4 ablation variants
 
-With Q4 included and Q8 on v3, Sonnet 4.6 matches Haiku's test matrix exactly. Sonnet 4.6 produces **17% better correctness** than Haiku (0.73 vs 0.62) at **10% higher cost-per-correctness** (96,545 vs 87,706) — a meaningful trade depending on whether absolute quality or absolute cost is the binding constraint.
+| Variant | Model | Tools | Scale | Rubric | Result (Q4 gap baseline−mcp+skill) |
+|---|---|---|---|---|---|
+| `baseline_judge` | Sonnet 4.6 | Read/Grep/Glob | 3-pt | none | +0.30 |
+| `mcp_judge` | Sonnet 4.6 | Read/Grep/Glob + MCP | 3-pt | none | +0.30 |
+| `opus_judge` | Opus 4.7 | Read/Grep/Glob | 3-pt | none | **+0.00** (saturated, every answer scored 1.0) |
+| `rubric_judge` v1 | Sonnet 4.6 | Read/Grep/Glob | 5-pt | must_cover + **penalize_errors** | **+0.50** |
 
-- **Sonnet 4.6 + Skill produces the highest correctness (0.70) of any Skill configuration tested**, at 9% better cost-per-correctness than Sonnet 4.5.
-- Haiku is the cheapest absolute, but Sonnet 4.6 + Skill produces a substantially better answer for ~37% more cost.
-- Across all three models, **the skill is consistently the best cost-per-correctness option** — by a wide margin on Sonnet 4.6, a moderate margin on Haiku, and a small margin on Sonnet 4.5.
+`rubric_judge v1` showed the largest gap and `opus_judge` showed none — neither result felt right. Closer inspection revealed the cause.
 
-## Honest caveats
+### The bug — anchoring on `penalize_errors`
 
-- **n=5 per cell on 4 queries** — focused experiment, not a broad survey. Cross-model parity with Haiku is now complete.
-- **Q4 and Q8 still favor Baseline on absolute correctness** (1.00 and 0.90 vs Skill's 0.70 each). Reading raw Javadoc/source gives the model a quotable ground-truth string for "purpose" or "role" descriptions; Skill must synthesize from graph metadata.
-- **The v3 fix is server-side and one-shot.** No prompt changes, no retraining. Sonnet 4.5 and Haiku 4.5 weren't re-run on v3 but should benefit similarly.
-- **Skill is the right answer when cost-per-correctness matters more than absolute correctness.** For workloads where every fraction of a point counts (e.g. compliance review), Baseline is still 0.17 points stronger at 2× the cost.
+The v1 rubric included a `penalize_errors` field listing 3 specific known mistakes per query (e.g., for Q4: _"GlideExecutor listed as a direct field of Engine"_). Statistical pattern across 21 rubric_judge reasonings:
 
-## Plot index
+- 15 of 21 explicitly cited a `penalize_error` from the rubric.
+- **0 of 21** flagged a factual error _outside_ the listed `penalize_errors`, even though the prompt asked the judge to "flag any other verifiable factual errors you find too".
+
+Direct evidence — same answer, two judges:
+
+> **Run 176, opus_judge** (1.0): *"Only minor inaccuracy is mislabeling the fourth GlideExecutor as 'main thread executor' instead of 'animationExecutor'."*
+> **Run 176, rubric_judge v1** (0.5): mentions only the listed GlideExecutor-as-field penalize_error. Never notices the wrong executor name.
+
+The judge was treating `penalize_errors` as an _exhaustive_ checklist rather than illustrative examples. Since `penalize_errors` had been written after observing some specific agent failure modes, the rubric was **inadvertently tuned**: any agent config that happened to make those listed errors more frequently got systematically harder-penalized than configs that made _different_ errors of equal severity.
+
+### The fix — `rubric_judge` v2
+
+Replaced `penalize_errors` with a structural change to the research prompt:
+
+- **Part 1 — must_cover coverage**: each rubric item verdict (COVERED / PARTIAL / MISSING / WRONG) with evidence from tools.
+- **Part 2 — independent spot-check**: judge must quote 5 of the most specific factual claims in the answer (class types, field membership, signatures, ordering, defaults) and verify each independently. Cannot just re-verify must_cover items.
+- **Six generic categories of error shapes** to hunt for: wrong class membership, extends-vs-implements, wrong type signatures, wrong ordering, hallucinations, wrong defaults. Project-agnostic — teaches the judge what to look for without anchoring to specific known errors.
+
+After re-running all 90 ablation calls under v2: **gap baseline − Skill on Q4 dropped from +0.50 → +0.075**. The "MCP+skill catastrophic" narrative dissolved. Baseline also dropped from 1.0 → 0.79 because the spot-check now catches implementation-detail errors in baseline answers too (e.g., _"Jobs as a single HashMap"_ when it's actually two HashMaps).
+
+### Implication for these results
+
+All 80 scores reported in this document use rubric_judge v2 — uniform methodology across modes and queries. The new judge is **strictly more rigorous** than the production judge: every answer is independently spot-checked against the codebase, with a 5-point scale that can distinguish "perfect" from "perfect with one verified error".
+
+## Caveats
+
+- **n=5 per cell on 4 queries** — focused experiment, error bars overlap on most pairwise mode comparisons (see `01b`). The cost differences are larger than the score differences and more robust.
+- **Glide-only** — these results say nothing about how the modes compare on other codebases. DayTrader7 will need re-running under the new judge methodology.
+- **Q15 (multi-hop) remains the consistent weak spot** for all non-Baseline modes. The structure of the answer (3-hop dependency chain with concrete names at every level) is something the MCP graph tools haven't quite cracked yet.
+- **Skill+Tools beats Skill in absolute terms but at a cost.** If correctness matters more than efficiency, use Skill+Tools (0.78 ≈ Baseline 0.79). If efficiency matters more, use Skill (0.71 at 70k cost).
+- **The judge change was substantive.** Earlier conclusions that compared Skill across models (Sonnet 4.5 vs 4.6 vs Haiku) used the older, less-rigorous judge and are no longer directly comparable to the numbers in this document.
+
+## Plot index (regenerated 2026-05-12 with 4-mode support)
 
 | File | Shows |
 |---|---|
-| `01_correctness.png` | Score by project and overall |
-| `02a_total_tokens_by_project.png` | Weighted-cost distribution per project |
+| `01_correctness.png` | Score by project + overall by mode |
+| **`01b_correctness_by_query.png`** | **Per-query × per-mode score with error bars — the key plot for spotting which queries each config struggles on** |
+| `02a_total_tokens_by_project.png` | Weighted-cost distribution per project, per mode |
 | `02b_total_tokens_by_query.png` | Weighted cost per query × mode |
-| `02c_prompt_vs_completion.png` | **Cost composition** (input/output/cache_cr/cache_rd weighted) per mode |
+| `02c_prompt_vs_completion.png` | Cost composition (input/output/cache_cr/cache_rd weighted) per mode |
 | `02d_tokens_per_iteration.png` | Weighted tokens per iteration |
-| `02e_token_breakdown_by_query.png` | Stacked component breakdown, all 3 modes × 3 queries |
+| `02e_token_breakdown_by_query.png` | Stacked component breakdown, all 4 modes × all queries |
 | `02f_query_token_table.png` | Per-query table with diff vs Baseline |
 | `03a–03f` | Tool-level analysis (frequency, result size, truncation, scatter) |
 | `04_timing_and_iterations.png` | Wall time and iteration counts |
@@ -112,16 +132,24 @@ With Q4 included and Q8 on v3, Sonnet 4.6 matches Haiku's test matrix exactly. S
 
 ## Bottom line
 
-On Sonnet 4.6 with Skill v3 (n=20 across Q4/Q8/Q10/Q15), the skill **halves cost vs Baseline while losing only 17 percentage points of correctness**, and produces **8 percentage points better correctness than MCP-alone at 31% lower cost**. The cost-per-correctness numbers across all three models tested:
+Under a rigorous, bias-corrected judge (rubric_judge v2 with structured spot-check, no anchoring):
 
 ```
-Haiku 4.5 + Skill:       87,706 per 1.0 correct answer  (cheapest)
-Sonnet 4.6 + Skill v3:   96,545 per 1.0 correct answer  ⭐ (best correctness)
-Sonnet 4.6 + Skill v1:  119,675 per 1.0 correct answer  (historical)
-Sonnet 4.5 + Skill:     133,587 per 1.0 correct answer
+Mode         Score  Cost (weighted)  Cost / 1.0 score
+─────────────────────────────────────────────────────
+Baseline     0.79   142,293          180,750
+MCP          0.70   101,354          144,791
+Skill        0.71    69,996           98,170  ⭐ cheapest per unit correctness
+Skill+Tools  0.78    82,113          105,952  ⭐ best correctness under budget
 ```
 
-Recommended next steps:
-1. **Re-test Sonnet 4.5 and Haiku 4.5 on Q8** with the v3 MCP server. The fix was server-side, so all three models should benefit; expected lift is ~+0.10 score per cell at no extra cost.
-2. **Generalize the v3 lesson to other rigid output shapes.** Q15 (multi-hop chain ordering) is the next candidate — a `find_path` variant that returns a numbered, formatted call chain would likely move the needle there too.
-3. **When `EXPANSION_PLAN.md` Tier 1–2 tools land** in the MCP server (project_summary, find_crucial_nodes), extend `SKILL.md` with new W0 priors text and W6 "open-ended architectural question" workflow, then re-benchmark.
+**The SCG Navigator skill produces a real efficiency gain — ~46% cost reduction vs Baseline with only 8 points of correctness lost.** Adding built-in tools on top (Skill+Tools) closes the entire correctness gap at 42% lower cost than Baseline. The MCP graph tools alone — without the SKILL.md prompt — are dominated by every other config: the prompt is doing genuine work.
+
+The ablation work was as important as the headline numbers. The earlier "MCP catastrophic" finding was an artifact of judge anchoring on a specific list of expected errors. Once the judge was forced to independently spot-check claims against the codebase, all four configs landed in a 0.70–0.79 band — meaningful differences, but nothing close to the dramatic gap the old judge reported.
+
+### Next steps
+
+1. **Re-run DayTrader7** under the new judge methodology to validate the skill on a second codebase.
+2. **Investigate Q15 specifically** — multi-hop traces are a consistent weak spot. A `find_path` MCP tool returning a formatted call chain (analogous to the v3 `get_class_hierarchy` ASCII-tree fix) is the likely lever.
+3. **Verify n=5 is enough** by re-running 1-2 cells at n=20 — current error bars overlap on many pairwise comparisons.
+4. **Consider testing the new judge on the historical sonnet-4-5 / haiku-4-5 answers** to retrospectively recover cross-model comparison data without re-running agents.

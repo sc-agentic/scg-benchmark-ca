@@ -53,6 +53,7 @@ profile.json.gz
 .vscode
 .venv
 
-codebases/*/**
+codebases/
 .env
-results.db
+results.db*
+.claude

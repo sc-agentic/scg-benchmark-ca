@@ -10,7 +10,7 @@ import pandas as pd
 import seaborn as sns
 
 # ── palette ──────────────────────────────────────────────────────────────────
-PALETTE = {"Baseline": "#4C9BE8", "MCP": "#E8834C", "Skill": "#6BBF59"}
+PALETTE = {"Baseline": "#4C9BE8", "MCP": "#E8834C", "Skill": "#6BBF59", "Skill+Tools": "#9D6BBF"}
 sns.set_theme(style="whitegrid", font_scale=1.05)
 
 
@@ -108,6 +108,30 @@ def plot_correctness(df: pd.DataFrame, out: Path) -> None:
     axes[1].set_ylim(0, 1.1)
 
     _save(fig, out, "01_correctness.png")
+
+    # 1b ─ Per-query × per-mode breakdown ─ shows which queries each config
+    # struggles on, with all 4 modes side-by-side per query.
+    fig, ax = plt.subplots(figsize=(13, 5))
+    query_order = sorted(df["query_id"].unique(), key=lambda q: int(q.lstrip("DQT")))
+    mode_order = [m for m in ("Baseline", "MCP", "Skill", "Skill+Tools")
+                  if m in df["Agent Mode"].unique()]
+    sns.barplot(
+        data=df,
+        x="query_id",
+        y=col,
+        hue="Agent Mode",
+        order=query_order,
+        hue_order=mode_order,
+        palette=PALETTE,
+        errorbar="sd",
+        ax=ax,
+    )
+    ax.set_title("Correctness Score by Query × Agent Mode")
+    ax.set_xlabel("Query ID")
+    ax.set_ylabel("Score (avg ± sd)")
+    ax.set_ylim(0, 1.1)
+    ax.legend(title="Agent Mode", loc="lower right")
+    _save(fig, out, "01b_correctness_by_query.png")
 
 
 # 2 ─ Token Overview ──────────────────────────────────────────────────────────
@@ -268,11 +292,12 @@ def plot_token_overview(df_c: pd.DataFrame, out: Path) -> None:
 
     # Three shades per mode (light/medium/dark) so each stack reads as one mode.
     SHADES = {
-        "Baseline": ("#8FBCE6", "#4C9BE8", "#2D5A88"),
-        "MCP":      ("#F1AC88", "#E8834C", "#A8411D"),
-        "Skill":    ("#A8DDA0", "#6BBF59", "#3F8230"),
+        "Baseline":    ("#8FBCE6", "#4C9BE8", "#2D5A88"),
+        "MCP":         ("#F1AC88", "#E8834C", "#A8411D"),
+        "Skill":       ("#A8DDA0", "#6BBF59", "#3F8230"),
+        "Skill+Tools": ("#C4A5DD", "#9D6BBF", "#5E3F88"),
     }
-    modes_present = [m for m in ("Baseline", "MCP", "Skill")
+    modes_present = [m for m in ("Baseline", "MCP", "Skill", "Skill+Tools")
                      if m in grp_stack["Agent Mode"].unique()]
     n_modes = len(modes_present)
     width = 0.85 / max(n_modes, 1)
@@ -313,7 +338,7 @@ def plot_token_overview(df_c: pd.DataFrame, out: Path) -> None:
     )
 
     if "Baseline" in query_stats:
-        modes_present = [m for m in ("Baseline", "MCP", "Skill") if m in query_stats.columns]
+        modes_present = [m for m in ("Baseline", "MCP", "Skill", "Skill+Tools") if m in query_stats.columns]
         table_data = []
         for q, row in query_stats.iterrows():
             cells = [q]
@@ -588,20 +613,26 @@ def plot_benchmark_results(db_path: str, output_dir: str, model_filter: str | No
             print(f"No runs match project_name={project_filter!r}.")
             return
 
-    # Tri-state mode label: skill_enabled supersedes is_mcp_enabled because in
-    # skill mode both flags are True. Older rows lack the column and default to 0.
+    # Four-state mode label. builtin_tools_enabled splits Skill into Skill (MCP-only
+     # tools) and Skill+Tools (MCP + Read/Grep/Glob). Older rows lack the column and
+    # default to 0.
     skill_col = df["skill_enabled"] if "skill_enabled" in df.columns else 0
+    tools_col = df["builtin_tools_enabled"] if "builtin_tools_enabled" in df.columns else 0
 
-    def _label(is_mcp: int, is_skill: int) -> str:
+    def _label(is_mcp: int, is_skill: int, has_tools: int) -> str:
+        if is_skill and has_tools:
+            return "Skill+Tools"
         if is_skill:
             return "Skill"
         if is_mcp:
             return "MCP"
         return "Baseline"
 
+    skill_iter = skill_col if hasattr(skill_col, "__iter__") else [skill_col] * len(df)
+    tools_iter = tools_col if hasattr(tools_col, "__iter__") else [tools_col] * len(df)
     df["Agent Mode"] = [
-        _label(int(m), int(s))
-        for m, s in zip(df["is_mcp_enabled"], skill_col if hasattr(skill_col, "__iter__") else [skill_col] * len(df))
+        _label(int(m), int(s), int(t))
+        for m, s, t in zip(df["is_mcp_enabled"], skill_iter, tools_iter)
     ]
 
     # Anthropic billing weights (relative to base input rate):
@@ -638,7 +669,7 @@ def plot_benchmark_results(db_path: str, output_dir: str, model_filter: str | No
 def main() -> None:
     parser = argparse.ArgumentParser(description="Visualize benchmark results")
     parser.add_argument("--db", default="results.db", help="Path to SQLite database")
-    parser.add_argument("--out", default="plots", help="Directory to save plots")
+    parser.add_argument("--out", default="plots/sonnet-4-6", help="Directory to save plots")
     parser.add_argument(
         "--model",
         default=None,

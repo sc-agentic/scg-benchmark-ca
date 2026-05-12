@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS benchmark_runs (
     query_category  TEXT    NOT NULL,
     is_mcp_enabled  INTEGER NOT NULL,  -- 0 or 1
     skill_enabled   INTEGER NOT NULL DEFAULT 0,  -- 0 or 1; True ⇒ MCP + SKILL.md injected
+    builtin_tools_enabled INTEGER NOT NULL DEFAULT 0,  -- 0 or 1; True ⇒ MCP agent ALSO gets Read/Grep/Glob
     run_number      INTEGER NOT NULL,
     total_prompt_tokens         INTEGER NOT NULL,
     total_completion_tokens     INTEGER NOT NULL,
@@ -32,6 +33,24 @@ CREATE TABLE IF NOT EXISTS benchmark_runs (
     judge_reasoning         TEXT,
     judge_model             TEXT
 );
+
+CREATE TABLE IF NOT EXISTS ablation_runs (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp           TEXT    NOT NULL,
+    source_run_id       INTEGER NOT NULL,                  -- FK to benchmark_runs.id
+    variant_name        TEXT    NOT NULL,                  -- e.g., 'baseline_judge', 'opus_judge', 'mcp_judge', 'rubric_judge'
+    judge_model         TEXT    NOT NULL,
+    judge_has_mcp       INTEGER NOT NULL DEFAULT 0,        -- 0 or 1
+    uses_rubric         INTEGER NOT NULL DEFAULT 0,        -- 0 or 1
+    score               REAL,                              -- 0.0..1.0 (5-point if rubric) or -1 on error
+    reasoning           TEXT,
+    judge_prompt_tokens     INTEGER DEFAULT 0,
+    judge_completion_tokens INTEGER DEFAULT 0,
+    UNIQUE(source_run_id, variant_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ablation_variant ON ablation_runs(variant_name);
+CREATE INDEX IF NOT EXISTS idx_ablation_source  ON ablation_runs(source_run_id);
 """
 
 
@@ -56,6 +75,7 @@ class DatabaseManager:
             ("total_cache_creation_tokens", "INTEGER DEFAULT 0"),
             ("total_cache_read_tokens", "INTEGER DEFAULT 0"),
             ("skill_enabled", "INTEGER NOT NULL DEFAULT 0"),
+            ("builtin_tools_enabled", "INTEGER NOT NULL DEFAULT 0"),
         ]
         for col, typ in migrations:
             if col not in existing:
@@ -71,6 +91,7 @@ class DatabaseManager:
         query_category: str,
         is_mcp_enabled: bool,
         skill_enabled: bool = False,
+        builtin_tools_enabled: bool = False,
         run_number: int,
         total_prompt_tokens: int,
         total_completion_tokens: int,
@@ -91,13 +112,13 @@ class DatabaseManager:
             """
             INSERT INTO benchmark_runs (
                 timestamp, project_name, model_name, query_id, query_category,
-                is_mcp_enabled, skill_enabled, run_number,
+                is_mcp_enabled, skill_enabled, builtin_tools_enabled, run_number,
                 total_prompt_tokens, total_completion_tokens,
                 total_cache_creation_tokens, total_cache_read_tokens,
                 total_tokens, total_tool_calls, iterations, duration_seconds,
                 final_answer, tool_calls_log, status,
                 correctness_score, judge_reasoning, judge_model
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 datetime.now(timezone.utc).isoformat(),
@@ -107,6 +128,7 @@ class DatabaseManager:
                 query_category,
                 int(is_mcp_enabled),
                 int(skill_enabled),
+                int(builtin_tools_enabled),
                 run_number,
                 total_prompt_tokens,
                 total_completion_tokens,
@@ -186,6 +208,59 @@ class DatabaseManager:
             f"SELECT * FROM benchmark_runs{where} ORDER BY id", params
         ).fetchall()
         return [dict(r) for r in rows]
+
+    def save_ablation_result(
+        self,
+        *,
+        source_run_id: int,
+        variant_name: str,
+        judge_model: str,
+        judge_has_mcp: bool,
+        uses_rubric: bool,
+        score: float,
+        reasoning: str,
+        judge_prompt_tokens: int = 0,
+        judge_completion_tokens: int = 0,
+    ) -> int:
+        cur = self._conn.execute(
+            """
+            INSERT INTO ablation_runs (
+                timestamp, source_run_id, variant_name, judge_model,
+                judge_has_mcp, uses_rubric, score, reasoning,
+                judge_prompt_tokens, judge_completion_tokens
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(source_run_id, variant_name) DO UPDATE SET
+                timestamp=excluded.timestamp,
+                judge_model=excluded.judge_model,
+                judge_has_mcp=excluded.judge_has_mcp,
+                uses_rubric=excluded.uses_rubric,
+                score=excluded.score,
+                reasoning=excluded.reasoning,
+                judge_prompt_tokens=excluded.judge_prompt_tokens,
+                judge_completion_tokens=excluded.judge_completion_tokens
+            """,
+            (
+                datetime.now(timezone.utc).isoformat(),
+                source_run_id,
+                variant_name,
+                judge_model,
+                int(judge_has_mcp),
+                int(uses_rubric),
+                score,
+                reasoning,
+                judge_prompt_tokens,
+                judge_completion_tokens,
+            ),
+        )
+        self._conn.commit()
+        return cur.lastrowid  # type: ignore[return-value]
+
+    def get_ablation_done(self, variant_name: str) -> set[int]:
+        rows = self._conn.execute(
+            "SELECT source_run_id FROM ablation_runs WHERE variant_name=? AND score IS NOT NULL AND score >= 0",
+            (variant_name,),
+        ).fetchall()
+        return {r["source_run_id"] for r in rows}
 
     def export_csv(self, path: str | Path) -> int:
         rows = self._conn.execute("SELECT * FROM benchmark_runs ORDER BY id").fetchall()

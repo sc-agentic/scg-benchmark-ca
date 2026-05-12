@@ -19,7 +19,13 @@
         {
           "query_id": "Q4",
           "category": "Critical Entities",
-          "prompt_text": "What is the role of the `Engine` class, and what are its direct dependencies?"
+          "prompt_text": "What is the role of the `Engine` class, and what are its direct dependencies?",
+          "must_cover": [
+            "Engine is the central orchestrator of Glide's image-loading pipeline (manages resource loading and lifecycle).",
+            "Mentions a multi-tier cache resolution: at least 3 of {ActiveResources, MemoryCache, in-progress job dedup, new EngineJob+DecodeJob}.",
+            "Lists at least 3 of 7 direct dependencies from: MemoryCache, ActiveResources, EngineKeyFactory, Jobs, EngineJobFactory, DecodeJobFactory, LazyDiskCacheProvider.",
+            "Mentions at least 2 of 3 listener interfaces Engine implements: EngineJobListener, MemoryCache.ResourceRemovedListener, EngineResource.ResourceListener."
+          ]
         },
         {
           "query_id": "Q5",
@@ -34,12 +40,25 @@
         {
           "query_id": "Q8",
           "category": "Inheritance",
-          "prompt_text": "What is the class hierarchy of `Target` in Glide? List the inheritance chain and explain the purpose of each level."
+          "prompt_text": "What is the class hierarchy of `Target` in Glide? List the inheritance chain and explain the purpose of each level.",
+          "must_cover": [
+            "Identifies Target<R> as the root interface and describes its general role (contract for receiving loaded resources + lifecycle callbacks).",
+            "Mentions BaseTarget OR one of its modern alternatives (CustomTarget / CustomViewTarget) as the main abstract base layer.",
+            "Names at least 2 intermediate classes with parent links: SimpleTarget, ViewTarget, ImageViewTarget (ImageViewTarget extends ViewTarget).",
+            "Names at least 2 concrete leaf classes correctly placed under their parent: e.g., BitmapImageViewTarget / DrawableImageViewTarget under ImageViewTarget; AppWidgetTarget / NotificationTarget / PreloadTarget under CustomTarget.",
+            "Briefly explains the purpose of each level mentioned (not just listing names)."
+          ]
         },
         {
           "query_id": "Q10",
           "category": "Impact Analysis",
-          "prompt_text": "What components depend on `DiskCacheStrategy`? How does changing the caching strategy propagate through the system?"
+          "prompt_text": "What components depend on `DiskCacheStrategy`? How does changing the caching strategy propagate through the system?",
+          "must_cover": [
+            "Identifies DiskCacheStrategy as an abstract class with built-in static constants; names at least 3 of {ALL, NONE, DATA, RESOURCE, AUTOMATIC}.",
+            "Mentions the user-facing setter path: RequestBuilder.diskCacheStrategy(...) / BaseRequestOptions stores the field.",
+            "Describes the propagation through Engine and DecodeJob (Engine.load → DecodeJob, which consults DiskCacheStrategy to decide cache lookup / writeback).",
+            "Explains behavioral impact for at least 2 strategies (e.g., NONE skips disk caching entirely; ALL caches both raw data and transformed resource; RESOURCE caches only post-decode)."
+          ]
         },
         {
           "query_id": "Q11",
@@ -54,7 +73,13 @@
         {
           "query_id": "Q15",
           "category": "Multi-Hop Reasoning",
-          "prompt_text": "Starting from the `GifDrawable` class, trace all its dependencies up to 3 hops. What subsystems of Glide does GIF support touch?"
+          "prompt_text": "Starting from the `GifDrawable` class, trace all its dependencies up to 3 hops. What subsystems of Glide does GIF support touch?",
+          "must_cover": [
+            "Hop 1: names at least 2 direct dependencies of GifDrawable from {GifFrameLoader, GifDecoder, GifState, Transformation<Bitmap>, BitmapPool, Glide}.",
+            "Hop 2: names at least 2 dependencies of GifFrameLoader from {RequestManager, RequestBuilder<Bitmap>, CustomTarget/DelayTarget, RequestOptions, Handler/Looper, BitmapPool, Key/ObjectKey}.",
+            "Hop 3: reaches the Glide singleton / GlideContext / Engine layer (notes Engine orchestrates per-frame Bitmap loads).",
+            "Categorizes touched subsystems — at least 3 of: decode pipeline, bitmap pool / memory, transformations, request management / lifecycle, resource transcoding, executors / threading, parent-frame loading."
+          ]
         }
       ]
     },

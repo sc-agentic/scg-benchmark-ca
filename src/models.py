@@ -7,6 +7,7 @@ class BenchmarkQuery:
     query_id: str
     prompt_text: str
     category: str
+    must_cover: list[str] | None = None
 
 
 @dataclass
@@ -72,6 +73,7 @@ class RunConfig:
     is_mcp_enabled: bool
     skill_enabled: bool = False
     skill_path: str | None = None
+    builtin_tools_enabled: bool = False  # When True with MCP, also expose Read/Grep/Glob
     project_name: str = ""
     project_description: str = ""
     project_language: str = "Java"
@@ -82,8 +84,9 @@ class RunConfig:
 
     @property
     def mode_label(self) -> str:
+        suffix = "+Tools" if self.builtin_tools_enabled and self.is_mcp_enabled else ""
         if self.skill_enabled:
-            return "Skill"
+            return f"Skill{suffix}"
         if self.is_mcp_enabled:
-            return "MCP"
+            return f"MCP{suffix}"
         return "Baseline"

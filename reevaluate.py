@@ -20,8 +20,8 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Re-evaluate failed/missing judge scores")
     p.add_argument("--db", default="results.db")
     p.add_argument("--queries", default="queries.json", help="Path to queries JSON")
-    p.add_argument("--judge-model", default="claude-sonnet-4-5")
-    p.add_argument("--judge-max-iterations", type=int, default=30)
+    p.add_argument("--judge-model", default="claude-sonnet-4-6")
+    p.add_argument("--judge-max-iterations", type=int, default=50)
     p.add_argument("--mcp-url", default="http://localhost:8080/mcp")
     p.add_argument("--codebases-root", default="codebases")
     p.add_argument(
@@ -39,6 +39,17 @@ def _load_prompt_map(queries_path: str) -> dict[str, str]:
     for project in data.get("projects", []):
         for q in project.get("queries", []):
             mapping[q["query_id"]] = q["prompt_text"]
+    return mapping
+
+
+def _load_rubric_map(queries_path: str) -> dict[str, dict]:
+    """Return {query_id: {must_cover: [...]}} for queries that carry a rubric."""
+    data = json.loads(Path(queries_path).read_text(encoding="utf-8"))
+    mapping: dict[str, dict] = {}
+    for project in data.get("projects", []):
+        for q in project.get("queries", []):
+            if q.get("must_cover"):
+                mapping[q["query_id"]] = {"must_cover": q["must_cover"]}
     return mapping
 
 
@@ -63,6 +74,7 @@ async def main() -> None:
 
     prompt_map = _load_prompt_map(args.queries)
     folder_map = _load_folder_map(args.queries)
+    rubric_map = _load_rubric_map(args.queries)
 
     mcp_tool_names: tuple[str, ...] = ()
     if not args.no_mcp:
@@ -130,6 +142,7 @@ async def main() -> None:
 
             question = prompt_map.get(query_id, query_id)
 
+            rubric = rubric_map.get(query_id)
             try:
                 result = await evaluate_answer(
                     question=question,
@@ -139,6 +152,7 @@ async def main() -> None:
                     mcp_server_url=args.mcp_url if mcp_tool_names else None,
                     mcp_tool_names=mcp_tool_names,
                     max_iterations=args.judge_max_iterations,
+                    rubric=rubric,
                 )
             except Exception as exc:
                 log.error("evaluate_answer crashed for run %d: %s", run_id, exc)

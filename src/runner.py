@@ -23,6 +23,7 @@ def load_projects(path: str | Path) -> list[BenchmarkProject]:
                 query_id=q["query_id"],
                 prompt_text=q["prompt_text"],
                 category=q["category"],
+                must_cover=q.get("must_cover"),
             )
             for q in p["queries"]
         ]
@@ -51,10 +52,11 @@ class BenchmarkRunner:
         mcp_tool_names: tuple[str, ...] = (),
         codebases_root: str = "codebases",
         max_iterations: int = 100,
-        judge_model: str = "claude-sonnet-4-5",
-        judge_max_iterations: int = 10,
+        judge_model: str = "claude-sonnet-4-6",
+        judge_max_iterations: int = 50,
         concurrency: int = 1,
         skill_path: str | None = None,
+        builtin_tools_with_mcp: bool = False,
     ) -> None:
         self._db = db
         self._projects = projects
@@ -69,6 +71,7 @@ class BenchmarkRunner:
         self._judge_max_iterations = judge_max_iterations
         self._concurrency = concurrency
         self._skill_path = skill_path
+        self._builtin_tools_with_mcp = builtin_tools_with_mcp
 
     def _count_total_runs(self) -> int:
         total_queries = sum(len(p.queries) for p in self._projects)
@@ -116,6 +119,7 @@ class BenchmarkRunner:
                     is_mcp_enabled=is_mcp,
                     skill_enabled=skill_enabled,
                     skill_path=self._skill_path if skill_enabled else None,
+                    builtin_tools_enabled=is_mcp and self._builtin_tools_with_mcp,
                     project_name=project.name,
                     project_description=project.description,
                     project_language=project.language,
@@ -181,6 +185,7 @@ class BenchmarkRunner:
                 query_category=query.category,
                 is_mcp_enabled=config.is_mcp_enabled,
                 skill_enabled=config.skill_enabled,
+                builtin_tools_enabled=config.builtin_tools_enabled,
                 run_number=run_number,
                 total_prompt_tokens=0,
                 total_completion_tokens=0,
@@ -202,6 +207,7 @@ class BenchmarkRunner:
             query_category=query.category,
             is_mcp_enabled=config.is_mcp_enabled,
             skill_enabled=config.skill_enabled,
+            builtin_tools_enabled=config.builtin_tools_enabled,
             run_number=run_number,
             total_prompt_tokens=state.cumulative_prompt_tokens,
             total_completion_tokens=state.cumulative_completion_tokens,
@@ -231,6 +237,7 @@ class BenchmarkRunner:
         )
 
         if state.status == "completed" and state.final_answer:
+            rubric = {"must_cover": query.must_cover} if query.must_cover else None
             eval_result = await evaluate_answer(
                 question=query.prompt_text,
                 answer=state.final_answer,
@@ -239,6 +246,7 @@ class BenchmarkRunner:
                 mcp_server_url=self._mcp_url if self._mcp_tool_names else None,
                 mcp_tool_names=self._mcp_tool_names,
                 max_iterations=self._judge_max_iterations,
+                rubric=rubric,
             )
             self._db.update_score(
                 run_id,

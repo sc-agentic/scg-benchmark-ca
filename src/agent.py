@@ -85,6 +85,7 @@ def _build_options(config: RunConfig) -> ClaudeAgentOptions:
     system_prompt = _build_system_prompt(config)
 
     if config.is_mcp_enabled:
+        builtin = list(BASELINE_TOOLS) if config.builtin_tools_enabled else []
         return ClaudeAgentOptions(
             system_prompt=system_prompt,
             cwd=config.codebase_path,
@@ -96,8 +97,8 @@ def _build_options(config: RunConfig) -> ClaudeAgentOptions:
                     "url": config.mcp_server_url,
                 }
             },
-            tools=[],
-            allowed_tools=list(config.mcp_tool_names),
+            tools=builtin,
+            allowed_tools=builtin + list(config.mcp_tool_names),
             permission_mode="bypassPermissions",
             cli_path=_cli_path(),
         )

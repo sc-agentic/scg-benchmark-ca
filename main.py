@@ -23,8 +23,8 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--model",
-        default="claude-sonnet-4-5",
-        help="Claude model name (default: claude-sonnet-4-5)",
+        default="claude-sonnet-4-6",
+        help="Claude model name (default: claude-sonnet-4-6)",
     )
     p.add_argument(
         "--reruns",
@@ -79,14 +79,22 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--judge-model",
-        default="claude-sonnet-4-5",
-        help="Claude model used as LLM judge for scoring (default: claude-sonnet-4-5)",
+        default="claude-sonnet-4-6",
+        help="Claude model used as LLM judge for scoring (default: claude-sonnet-4-6)",
     )
     p.add_argument(
         "--judge-max-iterations",
         type=int,
-        default=30,
-        help="Max iterations for the judge agent (default: 30)",
+        default=50,
+        help="Max iterations for the judge agent (default: 50)",
+    )
+    p.add_argument(
+        "--builtin-tools-with-mcp",
+        action="store_true",
+        help=(
+            "When set, MCP/skill agents also get Read/Grep/Glob alongside MCP tools "
+            "(experimental config 'mcp+skill+tools')."
+        ),
     )
     p.add_argument(
         "--export-csv",
@@ -234,6 +242,7 @@ def main() -> None:
             judge_max_iterations=args.judge_max_iterations,
             concurrency=args.concurrency,
             skill_path=skill_path,
+            builtin_tools_with_mcp=args.builtin_tools_with_mcp,
         )
         summary = asyncio.run(runner.run_all())
 
