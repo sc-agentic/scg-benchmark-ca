@@ -164,12 +164,6 @@ class DatabaseManager:
         self._conn.commit()
 
     def get_unscored_runs(self, include_failed: bool = False) -> list[dict[str, Any]]:
-        """Return completed runs that have not yet been successfully scored.
-
-        Args:
-            include_failed: If True, also returns runs with correctness_score = -1.0
-                            (judge parse/API errors) so they can be retried.
-        """
         if include_failed:
             condition = "(correctness_score IS NULL OR correctness_score = -1.0)"
         else:

@@ -29,7 +29,7 @@ class AgentState:
     tool_calls_log: list[dict[str, Any]] = field(default_factory=list)
     iterations: int = 0
     final_answer: str | None = None
-    status: str = "running"  # running | completed | error | max_iterations
+    status: str = "running"
 
     @property
     def total_tokens(self) -> int:
@@ -73,7 +73,7 @@ class RunConfig:
     is_mcp_enabled: bool
     skill_enabled: bool = False
     skill_path: str | None = None
-    builtin_tools_enabled: bool = False  # When True with MCP, also expose Read/Grep/Glob
+    builtin_tools_enabled: bool = False
     project_name: str = ""
     project_description: str = ""
     project_language: str = "Java"

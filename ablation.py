@@ -1,22 +1,3 @@
-"""Phase A ablation: re-judge existing sonnet-4-6 answers under 4 judge variants.
-
-Variants:
-  - baseline_judge : Sonnet 4.6, Read/Grep/Glob,    3-point scale, generic prompt
-  - opus_judge     : Opus 4.7,   Read/Grep/Glob,    3-point scale, generic prompt
-  - mcp_judge      : Sonnet 4.6, Read/Grep/Glob+MCP, 3-point scale, generic prompt
-  - rubric_judge   : Sonnet 4.6, Read/Grep/Glob,    5-point scale, per-query rubric
-
-Scope (configurable via CLI):
-  - Agent model:  claude-sonnet-4-6
-  - Project:      Glide
-  - Queries:      Q4, Q8, Q10, Q15
-  - Configs:      baseline, mcp, mcp+skill  (all 3)
-  - Runs per cell: 5  (use all existing runs)
-
-Results land in `ablation_runs` table (separate from production scores).
-Idempotent: re-runs skip rows already saved with score >= 0.
-"""
-
 import argparse
 import asyncio
 import json
@@ -120,10 +101,6 @@ def _load_prompts_and_folders(queries_path: str) -> tuple[dict[str, str], dict[s
 
 
 def _load_rubrics(queries_path: str) -> dict[str, dict]:
-    """Read rubrics (must_cover) directly from queries.json.
-
-    Returns {query_id: {must_cover: [...]}} for queries that have a rubric.
-    """
     data = json.loads(Path(queries_path).read_text(encoding="utf-8"))
     rubrics: dict[str, dict] = {}
     for project in data.get("projects", []):
@@ -136,7 +113,6 @@ def _load_rubrics(queries_path: str) -> dict[str, dict]:
 def _select_runs(
     db: DatabaseManager, *, project: str, model: str, query_ids: tuple[str, ...]
 ) -> list[dict[str, Any]]:
-    """Return all sonnet-4-6 runs in scope, across all 3 configs."""
     rows: list[dict[str, Any]] = []
     for qid in query_ids:
         for run in db.get_runs(model_name=model, query_id=qid):
@@ -172,14 +148,12 @@ async def main() -> None:
     prompts, folders = _load_prompts_and_folders(args.queries_json)
     rubrics = _load_rubrics(args.queries_json)
 
-    # Verify rubric coverage if a rubric variant is selected.
     if any(v.use_rubric for v in selected_variants):
         missing = [q for q in query_ids if q not in rubrics]
         if missing:
             print(f"ERROR: missing rubrics for {missing}", file=sys.stderr)
             sys.exit(2)
 
-    # Discover MCP tools once, only if needed.
     mcp_tool_names: tuple[str, ...] = ()
     if any(v.use_mcp for v in selected_variants):
         try:
@@ -228,7 +202,6 @@ async def main() -> None:
             print("Dry run; exiting.")
             return
 
-        # Build list of (variant, run) pairs that still need judging.
         pending: list[tuple[Variant, dict[str, Any]]] = []
         skipped = 0
         for variant in selected_variants:

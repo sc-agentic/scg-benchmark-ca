@@ -167,8 +167,6 @@ def main() -> None:
     if args.mode in ("skill", "all"):
         modes.append("skill")
 
-    # Pre-flight: skill mode needs SKILL.md on disk. We refuse to run rather than
-    # silently fall back to plain MCP under the wrong label.
     skill_path: str | None = None
     if "skill" in modes:
         candidate = Path(args.skill_path)
@@ -181,9 +179,6 @@ def main() -> None:
             sys.exit(1)
         skill_path = str(candidate)
 
-    # Pre-flight: MCP server must be reachable if any mcp/skill run is scheduled.
-    # Otherwise the benchmark would silently produce baseline-only results
-    # under the wrong label.
     mcp_tool_names: tuple[str, ...] = ()
     if "mcp" in modes or "skill" in modes:
         try:

@@ -1,12 +1,3 @@
-"""Aggregate Phase A ablation results: per-variant × per-config average scores.
-
-Usage:
-    python ablation_report.py [--db results.db]
-
-Output: a table per variant showing avg score per config (baseline/mcp/mcp+skill),
-plus the gap (baseline - mcp+skill) — the key number we're tracking.
-"""
-
 import argparse
 import sqlite3
 from pathlib import Path
@@ -89,14 +80,12 @@ def main() -> None:
     conn = sqlite3.connect(args.db)
     conn.row_factory = sqlite3.Row
 
-    # Errors
     err_rows = [dict(r) for r in conn.execute(ERRORS_SQL).fetchall()]
     if err_rows:
         print("Judge errors per variant:")
         print(fmt_table(err_rows, ["variant_name", "n_errors"]))
         print()
 
-    # Main aggregate
     rows = [dict(r) for r in conn.execute(REPORT_SQL).fetchall()]
     if not rows:
         print("No ablation results yet.")
@@ -105,7 +94,6 @@ def main() -> None:
     print("=== Per-variant aggregate score (avg over all queries) ===\n")
     print(fmt_table(rows, ["variant_name", "config", "avg_score", "n"]))
 
-    # Gap analysis
     by_variant: dict[str, dict[str, float]] = {}
     for r in rows:
         by_variant.setdefault(r["variant_name"], {})[r["config"]] = r["avg_score"]
@@ -133,7 +121,6 @@ def main() -> None:
         )
     )
 
-    # Per query
     per_q = [dict(r) for r in conn.execute(PER_QUERY_SQL).fetchall()]
     if per_q:
         print("\n=== Per-query breakdown ===\n")

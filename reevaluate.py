@@ -43,7 +43,6 @@ def _load_prompt_map(queries_path: str) -> dict[str, str]:
 
 
 def _load_rubric_map(queries_path: str) -> dict[str, dict]:
-    """Return {query_id: {must_cover: [...]}} for queries that carry a rubric."""
     data = json.loads(Path(queries_path).read_text(encoding="utf-8"))
     mapping: dict[str, dict] = {}
     for project in data.get("projects", []):

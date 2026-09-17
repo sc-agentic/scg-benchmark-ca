@@ -9,12 +9,8 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 
-# ── palette ──────────────────────────────────────────────────────────────────
 PALETTE = {"Baseline": "#4C9BE8", "MCP": "#E8834C", "Skill": "#6BBF59", "Skill+Tools": "#9D6BBF"}
 sns.set_theme(style="whitegrid", font_scale=1.05)
-
-
-# ── helpers ──────────────────────────────────────────────────────────────────
 
 
 def _save(fig: plt.Figure, path: Path, name: str) -> None:
@@ -25,12 +21,10 @@ def _save(fig: plt.Figure, path: Path, name: str) -> None:
 
 
 def _fmt_k(x, _=None):
-    """Axis formatter: 12 000 → '12 k'."""
     return f"{x / 1000:.0f}k" if x >= 1000 else str(int(x))
 
 
 def _explode_tool_calls(df: pd.DataFrame) -> pd.DataFrame:
-    """Return a long-form DataFrame with one row per individual tool call."""
     rows = []
     for _, run in df.iterrows():
         if not run["tool_calls_log"]:
@@ -49,8 +43,7 @@ def _explode_tool_calls(df: pd.DataFrame) -> pd.DataFrame:
                     "model_name": run["model_name"],
                     "tool_name": call.get("tool_name", "unknown"),
                     "result_length": call.get("result_length", 0),
-                    "result_tokens": call.get("result_length", 0)
-                    // 4,  # rough estimate
+                    "result_tokens": call.get("result_length", 0) // 4,
                     "truncated": bool(call.get("truncated", False)),
                     "error": call.get("error") is not None,
                 }
@@ -58,17 +51,11 @@ def _explode_tool_calls(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-# ── plot functions ────────────────────────────────────────────────────────────
-
-# 1 ─ Correctness ─────────────────────────────────────────────────────────────
-
-
 def plot_correctness(df: pd.DataFrame, out: Path) -> None:
     col = "correctness_score"
     if col not in df.columns or df[col].isnull().all():
         return
 
-    # -1.0 is the sentinel for "not yet evaluated"; drop those rows
     df = df[df[col] >= 0].copy()
     if df.empty:
         print("  [skip] no evaluated correctness scores found (all -1.0).")
@@ -76,7 +63,6 @@ def plot_correctness(df: pd.DataFrame, out: Path) -> None:
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
-    # By project
     sns.barplot(
         data=df,
         x="project_name",
@@ -91,7 +77,6 @@ def plot_correctness(df: pd.DataFrame, out: Path) -> None:
     axes[0].set_ylabel("Score (avg ± sd)")
     axes[0].set_ylim(0, 1.1)
 
-    # Overall
     sns.barplot(
         data=df,
         x="Agent Mode",
@@ -109,8 +94,6 @@ def plot_correctness(df: pd.DataFrame, out: Path) -> None:
 
     _save(fig, out, "01_correctness.png")
 
-    # 1b ─ Per-query × per-mode breakdown ─ shows which queries each config
-    # struggles on, with all 4 modes side-by-side per query.
     fig, ax = plt.subplots(figsize=(13, 5))
     query_order = sorted(df["query_id"].unique(), key=lambda q: int(q.lstrip("DQT")))
     mode_order = [m for m in ("Baseline", "MCP", "Skill", "Skill+Tools")
@@ -134,15 +117,10 @@ def plot_correctness(df: pd.DataFrame, out: Path) -> None:
     _save(fig, out, "01b_correctness_by_query.png")
 
 
-# 2 ─ Token Overview ──────────────────────────────────────────────────────────
-
-
 def plot_token_overview(df_c: pd.DataFrame, out: Path) -> None:
-    """Prompt vs completion total, boxplot per project, tokens/iteration."""
     if df_c.empty:
         return
 
-    # 2a  weighted tokens box by project — input-equivalent cost
     fig, ax = plt.subplots(figsize=(12, 5))
     sns.boxplot(
         data=df_c,
@@ -163,7 +141,6 @@ def plot_token_overview(df_c: pd.DataFrame, out: Path) -> None:
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(_fmt_k))
     _save(fig, out, "02a_total_tokens_by_project.png")
 
-    # 2b  weighted tokens per query_id
     fig, ax = plt.subplots(figsize=(14, 5))
     sns.barplot(
         data=df_c,
@@ -181,10 +158,6 @@ def plot_token_overview(df_c: pd.DataFrame, out: Path) -> None:
     plt.xticks(rotation=45, ha="right")
     _save(fig, out, "02b_total_tokens_by_query.png")
 
-    # 2c  cost composition: how each billable component contributes to the
-    # weighted total per mode. Bars stack the four weighted contributions
-    # (input, output×5, cache_cr×1.25, cache_rd×0.10) so the reader sees what
-    # the user actually pays for, not just input + output.
     cols = [
         "total_prompt_tokens",
         "total_completion_tokens",
@@ -229,13 +202,11 @@ def plot_token_overview(df_c: pd.DataFrame, out: Path) -> None:
     ax.set_ylabel("Weighted tokens (input-equivalent)")
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(_fmt_k))
     ax.legend(loc="upper right", fontsize=9)
-    # annotate totals on top of each bar
     for xi, total in enumerate(bottom):
         ax.text(xi, total + total * 0.01, f"{total / 1000:.1f}k",
                 ha="center", fontsize=9, weight="bold")
     _save(fig, out, "02c_prompt_vs_completion.png")
 
-    # 2d  weighted tokens per iteration — context-growth × cost
     df_c = df_c.copy()
     df_c["tokens_per_iter"] = df_c["weighted_tokens"] / df_c["iterations"].clip(lower=1)
     fig, ax = plt.subplots(figsize=(10, 5))
@@ -253,7 +224,6 @@ def plot_token_overview(df_c: pd.DataFrame, out: Path) -> None:
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(_fmt_k))
     _save(fig, out, "02d_tokens_per_iteration.png")
 
-    # 2e Token breakdown by query (stacked bar)
     tool_tokens_per_run = {}
     for _, run in df_c.iterrows():
         t_cum_cost = 0
@@ -262,8 +232,6 @@ def plot_token_overview(df_c: pd.DataFrame, out: Path) -> None:
                 calls = json.loads(run["tool_calls_log"])
                 iters = max(1, run.get("iterations", 1))
                 for idx, call in enumerate(calls):
-                    # Because LLM is stateless, earlier tool results are re-sent on every subsequent iteration.
-                    # We estimate how many iterations this tool result lived in the context window.
                     occurrences = max(1, iters - min(idx, iters - 1))
                     size = call.get("result_length", 0) // 4
                     t_cum_cost += size * occurrences
@@ -276,7 +244,6 @@ def plot_token_overview(df_c: pd.DataFrame, out: Path) -> None:
     df_stack["base_prompt_tokens"] = (
         df_stack["total_prompt_tokens"] - df_stack["tool_tokens"]
     )
-    # If the crude mapping overestimates, cap base_prompt at 0
     df_stack["base_prompt_tokens"] = df_stack["base_prompt_tokens"].clip(lower=0)
 
     grp_stack = (
@@ -290,7 +257,6 @@ def plot_token_overview(df_c: pd.DataFrame, out: Path) -> None:
     queries = sorted(df_stack["query_id"].unique())
     x = np.arange(len(queries))
 
-    # Three shades per mode (light/medium/dark) so each stack reads as one mode.
     SHADES = {
         "Baseline":    ("#8FBCE6", "#4C9BE8", "#2D5A88"),
         "MCP":         ("#F1AC88", "#E8834C", "#A8411D"),
@@ -311,7 +277,6 @@ def plot_token_overview(df_c: pd.DataFrame, out: Path) -> None:
         tools = mode_data.reindex(queries)["tool_tokens"].fillna(0)
         comp = mode_data.reindex(queries)["total_completion_tokens"].fillna(0)
 
-        # Center the n_modes group of bars on each query tick.
         offset = (i - (n_modes - 1) / 2) * width
         light, mid, dark = SHADES.get(mode, ("#cccccc", "#888888", "#444444"))
 
@@ -328,9 +293,6 @@ def plot_token_overview(df_c: pd.DataFrame, out: Path) -> None:
 
     _save(fig, out, "02e_token_breakdown_by_query.png")
 
-    # 2f Tabular visualization of Average Weighted Tokens per Query (Image Output)
-    # Tri-mode: Baseline / MCP / Skill, with diffs vs. Baseline (the cheapest-
-    # baseline-relative comparison the reader usually wants).
     query_stats = (
         df_c.groupby(["query_id", "Agent Mode"])["weighted_tokens"]
         .mean()
@@ -346,7 +308,6 @@ def plot_token_overview(df_c: pd.DataFrame, out: Path) -> None:
             for m in modes_present:
                 v = row.get(m, float("nan"))
                 cells.append(f"{v:,.0f}" if not pd.isna(v) else "N/A")
-            # Diff columns: each non-baseline mode minus Baseline
             for m in modes_present:
                 if m == "Baseline":
                     continue
@@ -377,7 +338,6 @@ def plot_token_overview(df_c: pd.DataFrame, out: Path) -> None:
         table.set_fontsize(11)
         table.scale(1.2, 1.8)
 
-        # Style headers
         for (row, col), cell in table.get_celld().items():
             if row == 0:
                 cell.set_text_props(weight="bold")
@@ -386,19 +346,14 @@ def plot_token_overview(df_c: pd.DataFrame, out: Path) -> None:
         _save(fig, out, "02f_query_token_table.png")
 
 
-# 3 ─ Tool-Level Analysis ─────────────────────────────────────────────────────
-
-
 def plot_tool_analysis(df_c: pd.DataFrame, out: Path) -> None:
     tc = _explode_tool_calls(df_c)
     if tc.empty:
         print("  [skip] no tool_calls_log data found.")
         return
 
-    # 3a  call frequency per tool, split by mode
     fig, ax = plt.subplots(figsize=(13, 5))
     freq = tc.groupby(["tool_name", "Agent Mode"]).size().reset_index(name="calls")
-    # sort tools by total call count descending
     order = (
         freq.groupby("tool_name")["calls"]
         .sum()
@@ -420,7 +375,6 @@ def plot_tool_analysis(df_c: pd.DataFrame, out: Path) -> None:
     plt.xticks(rotation=40, ha="right")
     _save(fig, out, "03a_tool_call_frequency.png")
 
-    # 3b  median result size (tokens) per tool per mode
     fig, ax = plt.subplots(figsize=(13, 5))
     sns.barplot(
         data=tc,
@@ -440,7 +394,6 @@ def plot_tool_analysis(df_c: pd.DataFrame, out: Path) -> None:
     plt.xticks(rotation=40, ha="right")
     _save(fig, out, "03b_tool_result_size.png")
 
-    # 3c  result size distribution (box) — MCP-only deep-dive
     mcp_tc = tc[tc["Agent Mode"] == "MCP"]
     if not mcp_tc.empty:
         fig, ax = plt.subplots(figsize=(13, 5))
@@ -465,7 +418,6 @@ def plot_tool_analysis(df_c: pd.DataFrame, out: Path) -> None:
         plt.xticks(rotation=40, ha="right")
         _save(fig, out, "03c_mcp_result_size_distribution.png")
 
-    # 3d  truncation rate per tool
     trunc = (
         tc.groupby(["tool_name", "Agent Mode"])
         .apply(lambda g: g["truncated"].mean() * 100, include_groups=False)
@@ -488,7 +440,6 @@ def plot_tool_analysis(df_c: pd.DataFrame, out: Path) -> None:
     plt.xticks(rotation=40, ha="right")
     _save(fig, out, "03d_tool_truncation_rate.png")
 
-    # 3e  scatter: weighted cost per run vs tool calls count, coloured by mode
     fig, ax = plt.subplots(figsize=(9, 6))
     for mode, grp in df_c.groupby("Agent Mode"):
         ax.scatter(
@@ -506,7 +457,6 @@ def plot_tool_analysis(df_c: pd.DataFrame, out: Path) -> None:
     ax.legend(title="Mode")
     _save(fig, out, "03e_tokens_vs_tool_calls.png")
 
-    # 3f  cumulative result bytes flowing into context per mode (bar)
     ctx = (
         tc.groupby(["run_id", "Agent Mode"])["result_tokens"]
         .sum()
@@ -526,9 +476,6 @@ def plot_tool_analysis(df_c: pd.DataFrame, out: Path) -> None:
     ax.set_ylabel("Tool result tokens (est.)")
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(_fmt_k))
     _save(fig, out, "03f_context_from_tools.png")
-
-
-# 4 ─ Timing & Iterations ─────────────────────────────────────────────────────
 
 
 def plot_timing(df_c: pd.DataFrame, out: Path) -> None:
@@ -561,9 +508,6 @@ def plot_timing(df_c: pd.DataFrame, out: Path) -> None:
     _save(fig, out, "04_timing_and_iterations.png")
 
 
-# 5 ─ Status Distribution ─────────────────────────────────────────────────────
-
-
 def plot_status(df: pd.DataFrame, out: Path) -> None:
     status_counts = (
         df.groupby(["Agent Mode", "status"]).size().reset_index(name="count")
@@ -580,9 +524,6 @@ def plot_status(df: pd.DataFrame, out: Path) -> None:
     ax.set_title("Run Status Distribution")
     ax.set_ylabel("# Runs")
     _save(fig, out, "05_status_distribution.png")
-
-
-# ── main ──────────────────────────────────────────────────────────────────────
 
 
 def plot_benchmark_results(db_path: str, output_dir: str, model_filter: str | None = None, project_filter: str | None = None) -> None:
@@ -613,9 +554,6 @@ def plot_benchmark_results(db_path: str, output_dir: str, model_filter: str | No
             print(f"No runs match project_name={project_filter!r}.")
             return
 
-    # Four-state mode label. builtin_tools_enabled splits Skill into Skill (MCP-only
-     # tools) and Skill+Tools (MCP + Read/Grep/Glob). Older rows lack the column and
-    # default to 0.
     skill_col = df["skill_enabled"] if "skill_enabled" in df.columns else 0
     tools_col = df["builtin_tools_enabled"] if "builtin_tools_enabled" in df.columns else 0
 
@@ -635,15 +573,6 @@ def plot_benchmark_results(db_path: str, output_dir: str, model_filter: str | No
         for m, s, t in zip(df["is_mcp_enabled"], skill_iter, tools_iter)
     ]
 
-    # Anthropic billing weights (relative to base input rate):
-    #   input        : 1.00x
-    #   output       : 5.00x
-    #   cache_create : 1.25x
-    #   cache_read   : 0.10x
-    # `weighted_tokens` collapses these into a single input-equivalent number so
-    # comparisons reflect what the user actually pays. The unweighted
-    # `total_tokens` (input + output only) is left in place for backward
-    # compatibility but is misleading on its own.
     cc = df["total_cache_creation_tokens"] if "total_cache_creation_tokens" in df.columns else 0
     cr = df["total_cache_read_tokens"] if "total_cache_read_tokens" in df.columns else 0
     df["weighted_tokens"] = (

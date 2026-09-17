@@ -167,13 +167,6 @@ def _parse_score(content: str, scale: str = "3point") -> tuple[float, str]:
 
 
 async def _collect_text(gen) -> tuple[str, int, int]:
-    """Drain an SDK query generator, returning (joined_text, input_tokens, output_tokens).
-
-    Breaks immediately on ResultMessage. The bundled claude CLI exits with
-    code 1 on error_max_turns; if we keep iterating past ResultMessage the SDK
-    raises ProcessError when the subprocess exits non-zero — but we already
-    have everything we need from ResultMessage.
-    """
     blocks: list[str] = []
     in_tok = out_tok = 0
     async for msg in gen:
@@ -258,7 +251,6 @@ async def evaluate_answer(
             "judge_completion_tokens": judge_completion_tokens,
         }
 
-    # Phase 2: single-turn scoring call — no tools, forces JSON output.
     if use_rubric:
         scoring_prompt = (
             f"QUESTION:\n{question}\n\n"

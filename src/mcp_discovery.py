@@ -7,11 +7,10 @@ log = logging.getLogger(__name__)
 
 
 class MCPUnreachableError(RuntimeError):
-    """Raised when the MCP server cannot be contacted or fails to list tools."""
+    pass
 
 
 def _root_cause(exc: BaseException) -> BaseException:
-    """Walk through ExceptionGroups to find the underlying error."""
     while isinstance(exc, BaseExceptionGroup) and exc.exceptions:
         exc = exc.exceptions[0]
     return exc

@@ -31,12 +31,6 @@ _FRONTMATTER_RE = re.compile(r"\A---\n.*?\n---\n", re.DOTALL)
 
 
 def _load_skill_body(skill_path: str | os.PathLike[str]) -> str:
-    """Read a SKILL.md file and return its body with the YAML frontmatter stripped.
-
-    The frontmatter (name/description) is metadata used for triggering, not
-    instructions for the model — strip it before injecting into the system
-    prompt so we send only the actual guidance.
-    """
     text = Path(skill_path).read_text(encoding="utf-8")
     return _FRONTMATTER_RE.sub("", text, count=1).strip()
 

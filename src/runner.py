@@ -109,9 +109,6 @@ class BenchmarkRunner:
             log.info("=== Project: %s (folder: %s) ===", project.name, codebase_path)
 
             for mode in self._modes:
-                # 'skill' mode = MCP tools + SKILL.md guidance injected into the
-                # system prompt. Both flags are True so the agent gets MCP
-                # routing AND the navigation guidance.
                 is_mcp = mode in ("mcp", "skill")
                 skill_enabled = mode == "skill"
                 config = RunConfig(
